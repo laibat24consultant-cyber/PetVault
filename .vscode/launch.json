@@ -1,0 +1,16 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "PetVault (Chrome)",
+            "request": "launch",
+            "type": "dart",
+            "program": "lib/main.dart",
+            "deviceId": "chrome",
+            "toolArgs": [
+                "--web-port=8765",
+                "--dart-define=PETVAULT_API_BASE_URL=http://127.0.0.1:3000/api"
+            ]
+        }
+    ]
+}
