@@ -1090,6 +1090,11 @@ class _VaultPageViewState extends State<VaultPageView> {
         AppPage.listingDetail,
         AppPage.shop,
         AppPage.productDetail,
+        AppPage.checkout,
+        AppPage.petVisitRequests,
+        AppPage.userSettings,
+        AppPage.dataPrivacy,
+        AppPage.notifications,
       }.contains(page);
 
   void _toast(String message) {
