@@ -21,6 +21,7 @@ enum AppPage {
   splash,
   welcome,
   authentication,
+  passwordReset,
   registration,
   otp,
   roleSelection,
@@ -105,6 +106,7 @@ const _catalogGroups = <String, List<AppPage>>{
     AppPage.splash,
     AppPage.welcome,
     AppPage.authentication,
+    AppPage.passwordReset,
     AppPage.registration,
     AppPage.otp,
     AppPage.roleSelection,
@@ -182,6 +184,8 @@ String _titleFor(AppPage page) {
       return '02 Welcome';
     case AppPage.authentication:
       return '03 Sign in';
+    case AppPage.passwordReset:
+      return 'Reset password';
     case AppPage.registration:
       return '04 Create account';
     case AppPage.otp:
@@ -299,6 +303,7 @@ bool _isOnboarding(AppPage page) => const <AppPage>{
       AppPage.splash,
       AppPage.welcome,
       AppPage.authentication,
+      AppPage.passwordReset,
       AppPage.registration,
       AppPage.otp,
       AppPage.roleSelection,
@@ -383,9 +388,10 @@ class PetVaultApp extends StatelessWidget {
 }
 
 class VaultPageView extends StatefulWidget {
-  const VaultPageView({required this.page, super.key});
+  const VaultPageView({required this.page, this.initialEmail, super.key});
 
   final AppPage page;
+  final String? initialEmail;
 
   @override
   State<VaultPageView> createState() => _VaultPageViewState();
@@ -399,6 +405,8 @@ class _VaultPageViewState extends State<VaultPageView> {
   final _kycReferenceController = TextEditingController();
   final _shareRecipientController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _resetCodeController = TextEditingController();
+  final _newPasswordController = TextEditingController();
   final _otpController = TextEditingController();
   final _petNameController = TextEditingController();
   final _speciesController = TextEditingController();
@@ -457,6 +465,7 @@ class _VaultPageViewState extends State<VaultPageView> {
   bool _listingConfirmed = false;
   bool _authSubmitting = false;
   bool _otpSubmitting = false;
+  bool _passwordResetSubmitting = false;
   bool _checkoutSubmitting = false;
   bool _visitSubmitting = false;
   bool _requireShareConsent = true;
@@ -467,6 +476,7 @@ class _VaultPageViewState extends State<VaultPageView> {
   Uint8List? _healthDocumentBytes;
   String? _supportResponse;
   String? _triageResponse;
+  String? _passwordResetDevCode;
   List<Map<String, dynamic>> _remoteModerationListings =
       <Map<String, dynamic>>[];
   List<Map<String, dynamic>> _remoteSitters = <Map<String, dynamic>>[];
@@ -492,6 +502,9 @@ class _VaultPageViewState extends State<VaultPageView> {
     super.initState();
     _requireShareConsent = _store.requireExplicitConsent;
     _allowSitterFullRecords = _store.allowSitterFullRecords;
+    if (widget.page == AppPage.passwordReset) {
+      _emailController.text = widget.initialEmail ?? '';
+    }
     if (widget.page == AppPage.otp) {
       _otpController.text = _api.developmentVerificationCode ?? '';
     }
@@ -595,13 +608,17 @@ class _VaultPageViewState extends State<VaultPageView> {
   }
 
   Future<void> _loadSignedInData() async {
-    await Future.wait(<Future<void>>[
+    final requests = <Future<void>>[
       _loadRemotePets(),
       _loadRemoteListings(),
       _loadRemoteProducts(),
-      _loadRemoteOrders(),
-    ]);
+    ];
+    if (_canAccessOrders) requests.add(_loadRemoteOrders());
+    await Future.wait(requests);
   }
+
+  bool get _canAccessOrders =>
+      _api.activeRole == 'owner' || _api.activeRole == 'vendor';
 
   Future<void> _loadRemoteProviders(String role) async {
     try {
@@ -832,6 +849,7 @@ class _VaultPageViewState extends State<VaultPageView> {
   }
 
   Future<void> _loadRemoteOrders() async {
+    if (!_canAccessOrders) return;
     try {
       final orders = await _api.fetchOrders();
       if (mounted) _store.replaceRemoteOrders(orders);
@@ -963,6 +981,8 @@ class _VaultPageViewState extends State<VaultPageView> {
     _kycReferenceController.dispose();
     _shareRecipientController.dispose();
     _passwordController.dispose();
+    _resetCodeController.dispose();
+    _newPasswordController.dispose();
     _otpController.dispose();
     _petNameController.dispose();
     _speciesController.dispose();
@@ -1024,7 +1044,12 @@ class _VaultPageViewState extends State<VaultPageView> {
     }
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => VaultPageView(page: next),
+        builder: (_) => VaultPageView(
+          page: next,
+          initialEmail: next == AppPage.passwordReset
+              ? _emailController.text.trim()
+              : null,
+        ),
       ),
     );
   }
@@ -1084,6 +1109,7 @@ class _VaultPageViewState extends State<VaultPageView> {
         AppPage.splash,
         AppPage.welcome,
         AppPage.authentication,
+        AppPage.passwordReset,
         AppPage.registration,
         AppPage.otp,
         AppPage.marketplace,
@@ -1694,6 +1720,8 @@ class _VaultPageViewState extends State<VaultPageView> {
         return _welcome();
       case AppPage.authentication:
         return _authentication();
+      case AppPage.passwordReset:
+        return _passwordReset();
       case AppPage.registration:
         return _registration();
       case AppPage.otp:
@@ -1968,7 +1996,14 @@ class _VaultPageViewState extends State<VaultPageView> {
           Icon(icon, size: 18),
           const SizedBox(width: 8),
         ],
-        Text(label),
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+          ),
+        ),
       ],
     );
     return SizedBox(
@@ -2266,23 +2301,141 @@ class _VaultPageViewState extends State<VaultPageView> {
             primary: false, icon: Icons.person_add_alt_1_rounded),
         Center(
           child: TextButton(
-            onPressed: () async {
-              try {
-                final response = await _api.requestPasswordReset(
-                  _emailController.text,
-                );
-                if (!mounted) return;
-                final code = response['devCode'];
-                _toast(code is String
-                    ? 'Development reset code: $code.'
-                    : (response['message'] as String? ??
-                        'If the account exists, a reset code was issued.'));
-              } on PetVaultApiException catch (error) {
-                _showApiError(error);
-              }
-            },
+            onPressed: () => _open(AppPage.passwordReset),
             child: const Text('Forgot password?'),
           ),
+        ),
+      ],
+    );
+  }
+
+  Widget _passwordReset() {
+    return _scroll(
+      <Widget>[
+        const SizedBox(height: 30),
+        _title(
+          'Reset your password',
+          subtitle:
+              'Request a one-time code, then choose a new password for your account.',
+        ),
+        const SizedBox(height: 20),
+        _field(
+          'Email address',
+          hint: 'you@example.com',
+          controller: _emailController,
+          keyboardType: TextInputType.emailAddress,
+        ),
+        const SizedBox(height: 12),
+        _button(
+          _passwordResetSubmitting ? 'Sending code...' : 'Send reset code',
+          () async {
+            if (_passwordResetSubmitting) return;
+            final email = _emailController.text.trim();
+            if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email)) {
+              _toast('Enter a valid email address.');
+              return;
+            }
+            setState(() {
+              _passwordResetSubmitting = true;
+              _passwordResetDevCode = null;
+            });
+            try {
+              final response = await _api.requestPasswordReset(email);
+              if (!mounted) return;
+              final code = response['devCode'];
+              setState(() {
+                _passwordResetDevCode = code is String ? code : null;
+              });
+              _toast(response['message'] is String
+                  ? response['message'] as String
+                  : 'If the account exists, a reset code was issued.');
+            } on PetVaultApiException catch (error) {
+              _showApiError(error);
+            } finally {
+              if (mounted) setState(() => _passwordResetSubmitting = false);
+            }
+          },
+          isLoading: _passwordResetSubmitting,
+        ),
+        if (_passwordResetDevCode != null) ...<Widget>[
+          const SizedBox(height: 12),
+          _card(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                const Text(
+                  'Local development reset code',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 6),
+                SelectableText(_passwordResetDevCode!),
+                const SizedBox(height: 4),
+                const Text(
+                  'This code is for local development only.',
+                  style: TextStyle(color: _muted, fontSize: 12),
+                ),
+              ],
+            ),
+            color: _paleTeal,
+          ),
+        ],
+        const SizedBox(height: 18),
+        _field(
+          '6-digit reset code',
+          hint: 'Enter the code from your email',
+          controller: _resetCodeController,
+          keyboardType: TextInputType.number,
+        ),
+        const SizedBox(height: 12),
+        _field(
+          'New password',
+          hint: 'At least 8 characters',
+          controller: _newPasswordController,
+          obscureText: true,
+        ),
+        const SizedBox(height: 16),
+        _button(
+          _passwordResetSubmitting ? 'Updating password...' : 'Update password',
+          () async {
+            if (_passwordResetSubmitting) return;
+            final email = _emailController.text.trim();
+            final code = _resetCodeController.text.trim();
+            final newPassword = _newPasswordController.text;
+            if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email)) {
+              _toast('Enter a valid email address.');
+              return;
+            }
+            if (!RegExp(r'^\d{6}$').hasMatch(code)) {
+              _toast('Enter the 6-digit reset code.');
+              return;
+            }
+            if (newPassword.length < 8) {
+              _toast('Choose a password with at least 8 characters.');
+              return;
+            }
+            setState(() => _passwordResetSubmitting = true);
+            try {
+              await _api.confirmPasswordReset(
+                email: email,
+                code: code,
+                newPassword: newPassword,
+              );
+              if (!mounted) return;
+              _toast('Password updated. Sign in with your new password.');
+              Navigator.of(context).pop();
+            } on PetVaultApiException catch (error) {
+              _showApiError(error);
+            } finally {
+              if (mounted) setState(() => _passwordResetSubmitting = false);
+            }
+          },
+          isLoading: _passwordResetSubmitting,
+        ),
+        const SizedBox(height: 10),
+        _button(
+          'Back to sign in',
+          () => Navigator.of(context).pop(),
+          primary: false,
         ),
       ],
     );
@@ -2754,8 +2907,14 @@ class _VaultPageViewState extends State<VaultPageView> {
             scrollDirection: Axis.horizontal,
             children: <Widget>[
               if (pets.isEmpty)
-                _card(
-                  _button('Add your first pet', () => _open(AppPage.addPet)),
+                SizedBox(
+                  width: 280,
+                  child: _card(
+                    _button(
+                      'Add your first pet',
+                      () => _open(AppPage.addPet),
+                    ),
+                  ),
                 )
               else
                 for (final pet in pets) ...<Widget>[
@@ -5171,6 +5330,12 @@ class _VaultPageViewState extends State<VaultPageView> {
   }
 
   Widget _orderTracking() {
+    if (!_canAccessOrders) {
+      return _scroll(<Widget>[
+        _title('Order tracking'),
+        const Text('Orders are available to pet owners and vendors.'),
+      ]);
+    }
     final orders = _store.visibleOrders.reversed.toList();
     final order = orders.isEmpty ? null : orders.first;
     if (order == null) {

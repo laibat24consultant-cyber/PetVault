@@ -95,6 +95,22 @@ class PetVaultApi {
     );
   }
 
+  Future<Map<String, dynamic>> confirmPasswordReset({
+    required String email,
+    required String code,
+    required String newPassword,
+  }) {
+    return _send(
+      'POST',
+      '/auth/password-reset/confirm',
+      body: <String, Object?>{
+        'email': email,
+        'code': code,
+        'newPassword': newPassword,
+      },
+    );
+  }
+
   Future<Map<String, dynamic>> signIn(String email, String password) async {
     final response = await _send(
       'POST',

@@ -103,6 +103,74 @@ test('registration, pet health records, and owner privacy work end to end', asyn
   assert.equal(privateRecords.status, 403);
 });
 
+test('password reset verifies and consumes a one-time code', async () => {
+  const email = `reset-${randomUUID()}@petvault.test`;
+  const oldPassword = 'PetVaultIntegration123!';
+  const newPassword = 'PetVaultChanged123!';
+  const registration = await request('/auth/register', {
+    method: 'POST',
+    body: {
+      displayName: 'Password Reset Integration',
+      email,
+      phone: '5550100200',
+      password: oldPassword,
+    },
+  });
+  assert.equal(registration.status, 201);
+  assert.match(registration.payload.devCode ?? '', /^\d{6}$/);
+
+  const verification = await request('/auth/verify', {
+    method: 'POST',
+    body: { email, code: registration.payload.devCode },
+  });
+  assert.equal(verification.status, 200);
+
+  const resetRequest = await request('/auth/password-reset', {
+    method: 'POST',
+    body: { email },
+  });
+  assert.equal(resetRequest.status, 200);
+  assert.match(resetRequest.payload.devCode ?? '', /^\d{6}$/);
+
+  const invalidCode = await request('/auth/password-reset/confirm', {
+    method: 'POST',
+    body: { email, code: '000000', newPassword },
+  });
+  assert.equal(invalidCode.status, 400);
+
+  const reset = await request('/auth/password-reset/confirm', {
+    method: 'POST',
+    body: {
+      email,
+      code: resetRequest.payload.devCode,
+      newPassword,
+    },
+  });
+  assert.equal(reset.status, 200);
+  assert.equal(reset.payload.changed, true);
+
+  const reusedCode = await request('/auth/password-reset/confirm', {
+    method: 'POST',
+    body: {
+      email,
+      code: resetRequest.payload.devCode,
+      newPassword: 'PetVaultChanged456!',
+    },
+  });
+  assert.equal(reusedCode.status, 400);
+
+  const oldLogin = await request('/auth/login', {
+    method: 'POST',
+    body: { email, password: oldPassword },
+  });
+  assert.equal(oldLogin.status, 401);
+  const newLogin = await request('/auth/login', {
+    method: 'POST',
+    body: { email, password: newPassword },
+  });
+  assert.equal(newLogin.status, 200);
+});
+
 test('listing risk flags are explainable and admin moderation is enforced', async () => {
   const suffix = randomUUID().slice(0, 8);
   const sellerLogin = await request('/auth/login', {

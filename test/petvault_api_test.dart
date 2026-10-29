@@ -6,7 +6,8 @@ import 'package:http/testing.dart';
 import 'package:petvault/petvault_api.dart';
 
 void main() {
-  test('authenticated requests send the bearer token and active role', () async {
+  test('authenticated requests send the bearer token and active role',
+      () async {
     var callCount = 0;
     final client = MockClient((request) async {
       callCount += 1;
@@ -15,7 +16,9 @@ void main() {
         return http.Response(
           jsonEncode({
             'token': 'demo-token',
-            'user': {'roles': <String>['owner']},
+            'user': {
+              'roles': <String>['owner']
+            },
           }),
           200,
         );
