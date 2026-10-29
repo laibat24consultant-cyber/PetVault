@@ -1,3 +1,9 @@
+<<<<<<< HEAD
 node_modules
 .env
 npm-debug.log
+=======
+node_modules
+.env
+npm-debug.log
+>>>>>>> 24ecb6467fbec18fd7e609611217a71dd686272b

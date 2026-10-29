@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 {
   "name": "petvault-api",
   "version": "1.0.0",
@@ -27,3 +28,34 @@
     "zod": "^4.1.12"
   }
 }
+=======
+{
+  "name": "petvault-api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "PostgreSQL-backed REST API for PetVault",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "web": "node src/web-proxy.js",
+    "db:migrate": "node src/migrate.js",
+    "db:seed": "node src/seed.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.1.0",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.16.3",
+    "zod": "^4.1.12"
+  }
+}
+>>>>>>> 24ecb6467fbec18fd7e609611217a71dd686272b

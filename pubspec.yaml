@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 name: petvault
 description: A Flutter companion app for trusted pet care, records, and marketplace experiences.
 publish_to: "none"
@@ -42,3 +43,49 @@ flutter:
           weight: 900
   assets:
     - assets/images/
+=======
+name: petvault
+description: A Flutter companion app for trusted pet care, records, and marketplace experiences.
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  file_picker: ^13.1.0
+  http: ^1.5.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  fonts:
+    - family: Outfit
+      fonts:
+        - asset: assets/fonts/Outfit-Variable.ttf
+          weight: 100
+        - asset: assets/fonts/Outfit-Variable.ttf
+          weight: 200
+        - asset: assets/fonts/Outfit-Variable.ttf
+          weight: 300
+        - asset: assets/fonts/Outfit-Variable.ttf
+          weight: 400
+        - asset: assets/fonts/Outfit-Variable.ttf
+          weight: 500
+        - asset: assets/fonts/Outfit-Variable.ttf
+          weight: 600
+        - asset: assets/fonts/Outfit-Variable.ttf
+          weight: 700
+        - asset: assets/fonts/Outfit-Variable.ttf
+          weight: 800
+        - asset: assets/fonts/Outfit-Variable.ttf
+          weight: 900
+  assets:
+    - assets/images/
+>>>>>>> 24ecb6467fbec18fd7e609611217a71dd686272b

@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 services:
   postgres:
     image: postgres:17-alpine
@@ -46,3 +47,53 @@ services:
 
 volumes:
   petvault-postgres:
+=======
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: petvault
+      POSTGRES_USER: petvault
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-petvault_dev_only}
+    ports:
+      - "5432:5432"
+    volumes:
+      - petvault-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U petvault -d petvault"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: ./backend
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3000
+      DATABASE_URL: postgresql://petvault:${POSTGRES_PASSWORD:-petvault_dev_only}@postgres:5432/petvault
+      JWT_SECRET: ${JWT_SECRET:-local-development-secret-change-this-32chars}
+      JWT_EXPIRES_IN: 8h
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-unconfigured}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8765,http://127.0.0.1:8765,http://localhost:3000}
+      DEV_AUTH_CODES: ${DEV_AUTH_CODES:-true}
+      OTP_TTL_MINUTES: ${OTP_TTL_MINUTES:-10}
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-unconfigured}
+      EMAIL_FROM: ${EMAIL_FROM:-PetVault <no-reply@example.com>}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      DEMO_PASSWORD: ${DEMO_PASSWORD:-demo1234}
+      SEED_DEMO_DATA: ${SEED_DEMO_DATA:-false}
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  petvault-postgres:
+>>>>>>> 24ecb6467fbec18fd7e609611217a71dd686272b
