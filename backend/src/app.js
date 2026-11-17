@@ -7,12 +7,12 @@ import { z } from 'zod';
 import { loadConfig } from './config.js';
 import { HttpError, asyncRoute, errorHandler } from './errors.js';
 import { inTransaction } from './database.js';
+import { assertPetAccess } from './pet-access.js';
 import { sendOneTimeCode } from './email.js';
 import {
   ADMIN_ROLE,
   DUMMY_PASSWORD_HASH,
   PUBLIC_ROLES,
-  SUPPLY_ROLES,
   authenticateRequest,
   generateOneTimeCode,
   hashOneTimeCode,
@@ -21,7 +21,6 @@ import {
   normalizePhone,
   publicUser,
   requireRole,
-  requireVerifiedSupplyRole,
   safeEqualHex,
   signAccessToken,
   verifyPassword,
@@ -33,6 +32,7 @@ import { registerCommerceRoutes } from './routes/commerce.js';
 import { registerServiceRoutes } from './routes/services.js';
 import { registerAccountRoutes } from './routes/account.js';
 import { registerAdminRoutes } from './routes/admin.js';
+import { registerDisputeRoutes } from './routes/disputes.js';
 
 const uuid = z.string().uuid();
 const emailSchema = z.string().trim().email().max(254);
@@ -88,10 +88,15 @@ function mapRow(row) {
     Object.entries(row).map(([key, value]) => {
       const camelKey = key.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
       if (value instanceof Date) {
+        const dateOnly = ['record_date', 'next_due_at'].includes(key);
         return [
           camelKey,
-          ['record_date', 'next_due_at'].includes(key)
-            ? value.toISOString().slice(0, 10)
+          dateOnly
+            ? [
+                value.getFullYear(),
+                String(value.getMonth() + 1).padStart(2, '0'),
+                String(value.getDate()).padStart(2, '0'),
+              ].join('-')
             : value.toISOString(),
         ];
       }
@@ -109,35 +114,6 @@ function mapRows(rows) {
 
 function validateId(value) {
   return uuid.parse(value);
-}
-
-async function assertPetAccess(pool, req, petId, section) {
-  const petResult = await pool.query(
-    'SELECT id, owner_id FROM pets WHERE id = $1',
-    [petId],
-  );
-  const pet = petResult.rows[0];
-  if (!pet) throw new HttpError(404, 'Pet was not found.');
-  if (req.user.activeRole === 'owner' && pet.owner_id === req.user.id) {
-    return pet;
-  }
-  if (SUPPLY_ROLES.has(req.user.activeRole)) {
-    await requireVerifiedSupplyRole(req, pool);
-    const grantResult = await pool.query(
-      `SELECT 1
-         FROM pet_access_grants
-        WHERE pet_id = $1
-          AND owner_id = $2
-          AND recipient_id = $3
-          AND revoked_at IS NULL
-          AND (expires_at IS NULL OR expires_at > now())
-          AND sections && $4::text[]
-        LIMIT 1`,
-      [petId, pet.owner_id, req.user.id, [section]],
-    );
-    if (grantResult.rowCount > 0) return pet;
-  }
-  throw new HttpError(403, 'You do not have access to this pet information.');
 }
 
 function addAuthMiddleware(pool, config) {
@@ -659,6 +635,7 @@ export function createApp({ pool, config = loadConfig(), emailSender = sendOneTi
   registerCommerceRoutes(publicRouter, router, { pool, config, requireRole });
   registerServiceRoutes(publicRouter, router, { pool, requireRole });
   registerAdminRoutes(router, { pool, requireRole });
+  registerDisputeRoutes(router, { pool });
 
   router.get('/pets', requireRole('owner'), asyncRoute(async (req, res) => {
     const result = await pool.query(

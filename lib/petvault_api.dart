@@ -271,12 +271,16 @@ class PetVaultApi {
   Future<Map<String, dynamic>> completeVetAppointment({
     required String appointmentId,
     required String notes,
+    String? followUp,
   }) async {
     final response = await _send(
       'POST',
       '/veterinary/appointments/$appointmentId/notes',
       authenticated: true,
-      body: <String, Object?>{'notes': notes},
+      body: <String, Object?>{
+        'notes': notes,
+        if (followUp != null) 'followUp': followUp,
+      },
     );
     return _object(response['appointment']);
   }
@@ -327,6 +331,19 @@ class PetVaultApi {
       body: <String, Object?>{'status': status},
     );
     return _object(response['booking']);
+  }
+
+  Future<Map<String, dynamic>> postSittingCheckIn({
+    required String bookingId,
+    required String note,
+  }) async {
+    final response = await _send(
+      'POST',
+      '/sitting/bookings/$bookingId/check-ins',
+      authenticated: true,
+      body: <String, Object?>{'note': note},
+    );
+    return _object(response['checkIn']);
   }
 
   Future<List<Map<String, dynamic>>> fetchNotifications() async {
@@ -810,6 +827,24 @@ class PetVaultApi {
       '/admin/disputes/$disputeId',
       authenticated: true,
       body: <String, Object?>{'status': status, 'resolution': resolution},
+    );
+    return _object(response['dispute']);
+  }
+
+  Future<Map<String, dynamic>> openDispute({
+    required String targetType,
+    required String targetId,
+    required String reason,
+  }) async {
+    final response = await _send(
+      'POST',
+      '/disputes',
+      authenticated: true,
+      body: <String, Object?>{
+        'targetType': targetType,
+        'targetId': targetId,
+        'reason': reason,
+      },
     );
     return _object(response['dispute']);
   }

@@ -90,6 +90,10 @@ test('authentication, role authorization, marketplace and commerce workflows', {
   const owner = await registerAndVerify('owner@example.test', 'owner');
   const seller = await registerAndVerify('seller@example.test', 'owner');
   const sitter = await registerAndVerify('sitter@example.test', 'sitter');
+  const veterinarian = await registerAndVerify(
+    'veterinarian@example.test',
+    'veterinarian',
+  );
   const vendor = await registerAndVerify('vendor@example.test', 'vendor');
   const vendorTwo = await registerAndVerify('vendor-two@example.test', 'vendor');
   const admin = await provisionAdmin({
@@ -167,6 +171,20 @@ test('authentication, role authorization, marketplace and commerce workflows', {
     imageUrl: '',
   }, vendorTwo.token, 'vendor');
   assert.equal(secondProduct.status, 201);
+  const outOfStockProduct = await request('/products', 'POST', {
+    name: 'Out of stock treat',
+    price: 3,
+    stock: 0,
+    imageUrl: '',
+  }, vendor.token, 'vendor');
+  assert.equal(outOfStockProduct.status, 201);
+  const publicCatalog = await request('/products');
+  assert.equal(publicCatalog.body.products.find(
+    (item) => item.id === outOfStockProduct.body.product.id,
+  ).stock, 0);
+  assert.equal((await request('/orders', 'POST', {
+    items: [{ productId: outOfStockProduct.body.product.id, quantity: 1 }],
+  }, owner.token)).status, 409);
 
   const order = await request('/orders', 'POST', {
     items: [
@@ -181,6 +199,35 @@ test('authentication, role authorization, marketplace and commerce workflows', {
   }, owner.token);
   assert.equal(paid.status, 200);
   assert.equal(paid.body.order.paymentStatus, 'paid');
+  const noticesBeforeRepeatPay = await pool.query(
+    `SELECT count(*)::int AS total FROM notifications
+      WHERE user_id = $1 AND title = 'New paid order'`,
+    [vendor.user.id],
+  );
+  const auditsBeforeRepeatPay = await pool.query(
+    `SELECT count(*)::int AS total FROM audit_events
+      WHERE resource_id = $1 AND action = 'order.payment_succeeded'`,
+    [order.body.order.id],
+  );
+  const repeatedPayment = await request(
+    `/orders/${order.body.order.id}/pay`,
+    'POST',
+    { simulateUnavailable: false },
+    owner.token,
+  );
+  assert.equal(repeatedPayment.status, 200);
+  const noticesAfterRepeatPay = await pool.query(
+    `SELECT count(*)::int AS total FROM notifications
+      WHERE user_id = $1 AND title = 'New paid order'`,
+    [vendor.user.id],
+  );
+  const auditsAfterRepeatPay = await pool.query(
+    `SELECT count(*)::int AS total FROM audit_events
+      WHERE resource_id = $1 AND action = 'order.payment_succeeded'`,
+    [order.body.order.id],
+  );
+  assert.equal(noticesAfterRepeatPay.rows[0].total, noticesBeforeRepeatPay.rows[0].total);
+  assert.equal(auditsAfterRepeatPay.rows[0].total, auditsBeforeRepeatPay.rows[0].total);
   const orderDeletionCheck = await request(
     '/account/deletion-eligibility',
     'GET',
@@ -307,13 +354,38 @@ test('authentication, role authorization, marketplace and commerce workflows', {
     owner.token,
   )).status, 403);
 
-  const dispute = await pool.query(
-    `INSERT INTO disputes (opened_by, target_type, target_id, reason)
-     VALUES ($1, 'order', $2, $3)
-     RETURNING id`,
-    [owner.user.id, order.body.order.id, 'Test order delivery dispute.'],
+  const dispute = await request(
+    '/disputes',
+    'POST',
+    {
+      targetType: 'order',
+      targetId: order.body.order.id,
+      reason: 'Test order delivery dispute.',
+    },
+    owner.token,
   );
-  const disputeId = dispute.rows[0].id;
+  assert.equal(dispute.status, 201, JSON.stringify(dispute));
+  const disputeId = dispute.body.dispute.id;
+  assert.equal((await request(
+    '/disputes',
+    'POST',
+    {
+      targetType: 'order',
+      targetId: order.body.order.id,
+      reason: 'Duplicate order dispute.',
+    },
+    owner.token,
+  )).status, 409);
+  assert.equal((await request(
+    '/disputes',
+    'POST',
+    {
+      targetType: 'order',
+      targetId: order.body.order.id,
+      reason: 'Unauthorized order dispute.',
+    },
+    outsider.token,
+  )).status, 404);
   assert.equal((await request(
     `/admin/disputes/${disputeId}`,
     'PATCH',
@@ -411,6 +483,183 @@ test('authentication, role authorization, marketplace and commerce workflows', {
   assert.equal((await request(`/admin/kyc/${sitterKyc.body.submission.id}`, 'PATCH', {
     status: 'verified',
   }, adminToken, 'admin')).status, 200);
+  const sitterBooking = await request('/sitting/bookings', 'POST', {
+    sitterId: sitter.user.id,
+    petId: pet.body.pet.id,
+    startsAt: new Date(Date.now() + 86_400_000).toISOString(),
+    endsAt: new Date(Date.now() + 2 * 86_400_000).toISOString(),
+    arrangement: 'Care at the owner home',
+    instructions: 'Feed the pet twice daily.',
+    emergencyName: 'Trusted Contact',
+    emergencyPhone: '+12025550123',
+  }, owner.token);
+  assert.equal(sitterBooking.status, 201, JSON.stringify(sitterBooking));
+  const sitterViewBeforeStart = await request(
+    '/sitting/bookings',
+    'GET',
+    undefined,
+    sitter.token,
+    'sitter',
+  );
+  assert.equal(sitterViewBeforeStart.body.bookings[0].emergencyName, null);
+  assert.equal(sitterViewBeforeStart.body.bookings[0].emergencyPhone, null);
+  assert.equal((await request(
+    '/sitting/bookings',
+    'GET',
+    undefined,
+    owner.token,
+  )).body.bookings[0].emergencyName, 'Trusted Contact');
+  assert.equal((await request(
+    `/sitting/bookings/${sitterBooking.body.booking.id}/status`,
+    'PATCH',
+    { status: 'confirmed' },
+    sitter.token,
+    'sitter',
+  )).status, 200);
+  await pool.query(
+    `UPDATE sitter_bookings
+        SET starts_at = now() - interval '1 minute',
+            ends_at = now() + interval '1 hour'
+      WHERE id = $1`,
+    [sitterBooking.body.booking.id],
+  );
+  const sitterViewDuringBooking = await request(
+    '/sitting/bookings',
+    'GET',
+    undefined,
+    sitter.token,
+    'sitter',
+  );
+  assert.equal(sitterViewDuringBooking.body.bookings[0].emergencyName, 'Trusted Contact');
+  assert.equal((await request(
+    `/sitting/bookings/${sitterBooking.body.booking.id}/check-ins`,
+    'POST',
+    { note: 'Rosco ate dinner and is resting comfortably.' },
+    owner.token,
+  )).status, 403);
+  const checkIn = await request(
+    `/sitting/bookings/${sitterBooking.body.booking.id}/check-ins`,
+    'POST',
+    { note: 'Rosco ate dinner and is resting comfortably.' },
+    sitter.token,
+    'sitter',
+  );
+  assert.equal(checkIn.status, 201, JSON.stringify(checkIn));
+  assert.equal(checkIn.body.checkIn.note, 'Rosco ate dinner and is resting comfortably.');
+  const ownerBookingUpdates = await request(
+    '/sitting/bookings',
+    'GET',
+    undefined,
+    owner.token,
+  );
+  assert.equal(ownerBookingUpdates.body.bookings[0].updates.length, 1);
+  assert.equal(ownerBookingUpdates.body.bookings[0].updates[0].note, checkIn.body.checkIn.note);
+  await pool.query(
+    `UPDATE sitter_bookings
+        SET starts_at = now() - interval '2 hours',
+            ends_at = now() - interval '1 hour'
+      WHERE id = $1`,
+    [sitterBooking.body.booking.id],
+  );
+  const sitterViewAfterBooking = await request(
+    '/sitting/bookings',
+    'GET',
+    undefined,
+    sitter.token,
+    'sitter',
+  );
+  assert.equal(sitterViewAfterBooking.body.bookings[0].emergencyName, null);
+  assert.equal((await request(
+    `/sitting/bookings/${sitterBooking.body.booking.id}/check-ins`,
+    'POST',
+    { note: 'Late update should not be accepted.' },
+    sitter.token,
+    'sitter',
+  )).status, 404);
+  assert.equal((await request(
+    `/sitting/bookings/${sitterBooking.body.booking.id}/status`,
+    'PATCH',
+    { status: 'complete' },
+    sitter.token,
+    'sitter',
+  )).status, 200);
+
+  const veterinarianKyc = await request('/kyc', 'POST', {
+    role: 'veterinarian',
+    documentReference: 'test-vet-identity-verification',
+  }, veterinarian.token, 'veterinarian');
+  assert.equal(veterinarianKyc.status, 201);
+  assert.equal((await request(
+    `/admin/kyc/${veterinarianKyc.body.submission.id}`,
+    'PATCH',
+    { status: 'verified' },
+    adminToken,
+    'admin',
+  )).status, 200);
+  const vetStartsAt = new Date(Date.now() + 3 * 86_400_000);
+  const vetSlot = await request('/veterinary/availability', 'POST', {
+    startsAt: vetStartsAt.toISOString(),
+    endsAt: new Date(vetStartsAt.getTime() + 60 * 60_000).toISOString(),
+  }, veterinarian.token, 'veterinarian');
+  assert.equal(vetSlot.status, 201, JSON.stringify(vetSlot));
+  const appointment = await request('/veterinary/appointments', 'POST', {
+    availabilityId: vetSlot.body.availability.id,
+    petId: pet.body.pet.id,
+    type: 'Routine checkup',
+  }, owner.token);
+  assert.equal(appointment.status, 201, JSON.stringify(appointment));
+  const deniedVetNotes = await request(
+    `/veterinary/appointments/${appointment.body.appointment.id}/notes`,
+    'POST',
+    { notes: 'Consultation notes without owner access.' },
+    veterinarian.token,
+    'veterinarian',
+  );
+  assert.equal(deniedVetNotes.status, 403);
+  assert.equal((await request('/veterinary/appointments', 'POST', {
+    availabilityId: vetSlot.body.availability.id,
+    petId: pet.body.pet.id,
+    type: 'Duplicate booking',
+  }, owner.token)).status, 404);
+  const vetGrant = await request(`/pets/${pet.body.pet.id}/access-grants`, 'POST', {
+    recipientId: veterinarian.user.id,
+    sections: ['health'],
+  }, owner.token);
+  assert.equal(vetGrant.status, 201);
+  const followUpDate = new Date(Date.now() + 30 * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  const consultation = await request(
+    `/veterinary/appointments/${appointment.body.appointment.id}/notes`,
+    'POST',
+    { notes: 'Routine consultation notes.', followUp: followUpDate },
+    veterinarian.token,
+    'veterinarian',
+  );
+  assert.equal(consultation.status, 200, JSON.stringify(consultation));
+  const vetHealthRecords = await request(
+    `/pets/${pet.body.pet.id}/health-records`,
+    'GET',
+    undefined,
+    veterinarian.token,
+    'veterinarian',
+  );
+  const persistedConsultation = vetHealthRecords.body.records.find(
+    (record) => record.recordType === 'consultation',
+  );
+  assert.ok(persistedConsultation);
+  assert.equal(persistedConsultation.createdBy, veterinarian.user.id);
+  assert.equal(persistedConsultation.nextDueAt, followUpDate);
+  const ownerAppointments = await request(
+    '/veterinary/appointments',
+    'GET',
+    undefined,
+    owner.token,
+  );
+  assert.equal(
+    ownerAppointments.body.appointments[0].consultationNotes,
+    'Routine consultation notes.',
+  );
   const grantBody = { recipientId: sitter.user.id, sections: ['health'] };
   assert.equal((await request(`/pets/${pet.body.pet.id}/access-grants`, 'POST', grantBody, owner.token))
     .status, 201);

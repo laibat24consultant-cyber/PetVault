@@ -491,6 +491,7 @@ class _VaultPageViewState extends State<VaultPageView> {
   final _sittingUpdateController = TextEditingController();
   final _reviewController = TextEditingController();
   final _vetNotesController = TextEditingController();
+  final _vetFollowUpController = TextEditingController();
   final _supportController = TextEditingController();
   final _messageController = TextEditingController();
   final _triageController = TextEditingController();
@@ -1388,6 +1389,7 @@ class _VaultPageViewState extends State<VaultPageView> {
     _sittingUpdateController.dispose();
     _reviewController.dispose();
     _vetNotesController.dispose();
+    _vetFollowUpController.dispose();
     _supportController.dispose();
     _messageController.dispose();
     _triageController.dispose();
@@ -4635,14 +4637,31 @@ class _VaultPageViewState extends State<VaultPageView> {
               hint: 'Source-based notes; no diagnosis by this prototype',
               controller: _vetNotesController,
               maxLines: 4),
+          const SizedBox(height: 8),
+          _field(
+            'Optional follow-up date',
+            hint: 'YYYY-MM-DD',
+            controller: _vetFollowUpController,
+            keyboardType: TextInputType.datetime,
+          ),
           const SizedBox(height: 12),
           _button('Save consultation notes', () async {
+            final followUpInput = _vetFollowUpController.text.trim();
+            final followUpDate =
+                followUpInput.isEmpty ? null : DateTime.tryParse(followUpInput);
+            if (followUpInput.isNotEmpty && followUpDate == null) {
+              _toast('Enter the follow-up date as YYYY-MM-DD.');
+              return;
+            }
             try {
               await _api.completeVetAppointment(
                 appointmentId: pendingAppointment['id'] as String,
                 notes: _vetNotesController.text,
+                followUp: followUpDate?.toIso8601String().substring(0, 10),
               );
               await _loadRemoteAppointments();
+              _vetNotesController.clear();
+              _vetFollowUpController.clear();
               if (mounted) _toast('Consultation notes saved.');
             } on PetVaultApiException catch (error) {
               _showApiError(error);
@@ -6175,6 +6194,35 @@ class _VaultPageViewState extends State<VaultPageView> {
               ],
             ),
           ),
+        if (order.paymentStatus == PaymentStatus.paid)
+          _button(
+            'Report an order problem',
+            () async {
+              final reason = await _requestAdminReason(
+                title: 'Report an order problem',
+                detail: 'Describe the issue so an administrator can review it.',
+                fieldLabel: 'Problem details',
+              );
+              if (reason == null) return;
+              if (reason.length < 5) {
+                _toast('Enter at least five characters.');
+                return;
+              }
+              try {
+                await _api.openDispute(
+                  targetType: 'order',
+                  targetId: order.id,
+                  reason: reason,
+                );
+                if (mounted) _toast('Order issue submitted for review.');
+              } on PetVaultApiException catch (error) {
+                _showApiError(error);
+              } on FormatException catch (error) {
+                _showApiError(error);
+              }
+            },
+            primary: false,
+          ),
       ],
     );
   }
@@ -6745,8 +6793,17 @@ class _VaultPageViewState extends State<VaultPageView> {
                       style: const TextStyle(fontWeight: FontWeight.w700)),
                   const SizedBox(height: 4),
                   Text('${booking['startsAt']} · ${booking['arrangement']}'),
-                  Text('Emergency: ${booking['emergencyName']}',
-                      style: const TextStyle(color: _muted, fontSize: 12)),
+                  if (_store.activeRole == PetVaultRole.owner ||
+                      booking['emergencyName'] != null)
+                    Text(
+                      'Emergency: ${booking['emergencyName'] ?? ''}',
+                      style: const TextStyle(color: _muted, fontSize: 12),
+                    )
+                  else
+                    const Text(
+                      'Emergency contact is shown during active care.',
+                      style: TextStyle(color: _muted, fontSize: 12),
+                    ),
                   if (_store.activeRole == PetVaultRole.sitter &&
                       booking['status'] == 'requested') ...<Widget>[
                     const SizedBox(height: 8),
@@ -6823,9 +6880,54 @@ class _VaultPageViewState extends State<VaultPageView> {
                   Text('${booking['startsAt']} · ${booking['status']}'),
                   if (_store.activeRole == PetVaultRole.sitter)
                     Text(
-                        'Emergency contact: ${booking['emergencyName']} · ${booking['emergencyPhone']}'),
+                      booking['emergencyName'] == null
+                          ? 'Emergency contact is shown during active care.'
+                          : 'Emergency contact: ${booking['emergencyName']} · ${booking['emergencyPhone']}',
+                    ),
                   Text('Care instructions: ${booking['instructions']}'),
+                  if (booking['updates'] is List &&
+                      (booking['updates'] as List).isNotEmpty) ...<Widget>[
+                    const SizedBox(height: 8),
+                    const Text('Care updates',
+                        style: TextStyle(fontWeight: FontWeight.w700)),
+                    for (final update in booking['updates'] as List)
+                      if (update is Map<String, dynamic>)
+                        Text(
+                          '${update['createdAt'] ?? ''} · ${update['note'] ?? ''}',
+                          style: const TextStyle(color: _muted, fontSize: 12),
+                        ),
+                  ],
                   if (_store.activeRole == PetVaultRole.sitter) ...<Widget>[
+                    if (booking['emergencyName'] != null) ...<Widget>[
+                      _field(
+                        'Care check-in update',
+                        hint: 'Share a brief text update',
+                        controller: _sittingUpdateController,
+                        maxLines: 3,
+                      ),
+                      _button('Share check-in', () async {
+                        final note = _sittingUpdateController.text.trim();
+                        if (note.isEmpty) {
+                          _toast('Enter a care update before sharing.');
+                          return;
+                        }
+                        try {
+                          await _api.postSittingCheckIn(
+                            bookingId: booking['id'] as String,
+                            note: note,
+                          );
+                          _sittingUpdateController.clear();
+                          await _loadRemoteBookings();
+                          if (mounted) {
+                            _toast('Check-in shared with the owner.');
+                          }
+                        } on PetVaultApiException catch (error) {
+                          _showApiError(error);
+                        } on FormatException catch (error) {
+                          _showApiError(error);
+                        }
+                      }),
+                    ],
                     _button('Complete booking', () async {
                       try {
                         await _api.updateBookingStatus(

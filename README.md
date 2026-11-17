@@ -209,11 +209,11 @@ The following user-story requirements remain incomplete or provider-dependent:
 | --- | --- |
 | Identity and onboarding | Email delivery requires configured Resend; production SMS and identity-document KYC adapters are not configured. |
 | Pet health records | Attachment names/metadata persist, but document bytes are not uploaded or stored. |
-| Pet marketplace | Listings can be moderated and messaged about; protected pet-purchase escrow, handover confirmation, automatic release, and transaction disputes are not enabled. |
-| Sitting and boarding | Booking requests/statuses work; sitter profile calendars, check-in updates, and ratings are not implemented. |
-| Veterinary care | Verified vets can publish slots and owners can book; tele-consult video, license-provider checks, and vet reviews are not connected. |
-| Product commerce | Catalog, inventory, demo checkout, and vendor-specific fulfillment work; production payment, delivery, variants, and product reviews are not configured. |
-| Trust and moderation | KYC, listing, report, support, dispute, and audit workflows are database-backed; real refunds and external payment settlement are not available. |
+| Pet marketplace | Listings can be moderated and messaged about. Disputes can be opened for supported records, but protected pet-purchase escrow, handover confirmation, and automatic release are not enabled. |
+| Sitting and boarding | Booking requests/statuses and active-booking text check-ins work. Sitter profile calendars, photo updates, and ratings are not implemented. |
+| Veterinary care | Verified vets can publish slots, owners can book, and consultation notes/follow-up dates persist in pet health records when access is granted; tele-consult video, license-provider checks, and vet reviews are not connected. |
+| Product commerce | Catalog, inventory, demo checkout, vendor-specific fulfillment, and order-dispute intake work; production payment, delivery, variants, and product reviews are not configured. |
+| Trust and moderation | KYC, listing, report, support, dispute intake/resolution, and audit workflows are database-backed; dispute decisions do not issue refunds or settle payments. |
 | Recommendations | No personalized recommendation service or evaluated production model is connected. |
 | Support and triage | Support requests persist; no grounded chatbot or veterinary triage model is connected. |
 | Notifications | In-app notifications are stored for key events; push/email delivery, preferences, and scheduled vaccination reminders are not configured. |
@@ -222,6 +222,9 @@ The following user-story requirements remain incomplete or provider-dependent:
 These boundaries are intentional: no fake payment, document upload, AI response,
 or production provider success is reported. Use only synthetic information in
 the local development environment.
+
+See the [story-by-story coverage audit](./Documents/PetVault_User_Story_Coverage_Audit.md)
+for implementation status, validated fixes, test results, and remaining gaps.
 
 ## Prototype and service boundaries
 

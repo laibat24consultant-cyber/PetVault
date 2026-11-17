@@ -36,7 +36,7 @@ export function registerCommerceRoutes(publicRouter, router, { pool, config, req
               p.created_at, p.updated_at
          FROM products p
          JOIN users u ON u.id = p.vendor_id
-        WHERE p.published = true AND p.stock > 0 AND u.deleted_at IS NULL
+        WHERE p.published = true AND u.deleted_at IS NULL
         ORDER BY p.name`,
     );
     res.json({ products: mapProducts(result.rows) });
@@ -187,7 +187,7 @@ export function registerCommerceRoutes(publicRouter, router, { pool, config, req
         'Payments are unavailable. Configure a supported payment provider and retry.',
       );
     }
-    const order = await inTransaction(pool, async (client) => {
+    const payment = await inTransaction(pool, async (client) => {
       const orderResult = await client.query(
         `SELECT id, payment_status
            FROM orders
@@ -197,7 +197,9 @@ export function registerCommerceRoutes(publicRouter, router, { pool, config, req
       );
       const current = orderResult.rows[0];
       if (!current) throw new HttpError(404, 'Order was not found.');
-      if (current.payment_status === 'paid') return current;
+      if (current.payment_status === 'paid') {
+        return { order: current, paidNow: false };
+      }
       if (current.payment_status !== 'pending') {
         throw new HttpError(409, 'This order cannot be paid in its current state.');
       }
@@ -228,9 +230,9 @@ export function registerCommerceRoutes(publicRouter, router, { pool, config, req
           RETURNING id, payment_status`,
         [id, `mock-${crypto.randomUUID()}`],
       );
-      return paid.rows[0];
+      return { order: paid.rows[0], paidNow: true };
     });
-    if (order.payment_status === 'paid') {
+    if (payment.paidNow) {
       const vendors = await pool.query(
         'SELECT DISTINCT vendor_id FROM order_items WHERE order_id = $1',
         [id],

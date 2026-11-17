@@ -3,6 +3,7 @@ import { HttpError, asyncRoute } from '../errors.js';
 import { inTransaction } from '../database.js';
 import { requireVerifiedSupplyRole } from '../security.js';
 import { createNotification, writeAuditEvent } from '../notifications.js';
+import { assertPetAccess } from '../pet-access.js';
 
 const uuid = z.string().uuid();
 const bookingSchema = z.object({
@@ -23,6 +24,9 @@ const appointmentSchema = z.object({
   availabilityId: uuid,
   petId: uuid,
   type: z.string().trim().min(2).max(120),
+}).strict();
+const sittingUpdateSchema = z.object({
+  note: z.string().trim().min(1).max(2000),
 }).strict();
 
 export function registerServiceRoutes(publicRouter, router, { pool, requireRole }) {
@@ -54,23 +58,41 @@ export function registerServiceRoutes(publicRouter, router, { pool, requireRole 
       : 'b.sitter_id = $1';
     const result = await pool.query(
       `SELECT b.id, b.owner_id, b.sitter_id, b.pet_id, b.starts_at, b.ends_at,
-              b.arrangement, b.instructions, b.emergency_name, b.emergency_phone,
+              b.arrangement, b.instructions,
+              CASE WHEN $2 = 'owner' OR (
+                b.status = 'confirmed'
+                AND now() >= b.starts_at
+                AND now() < b.ends_at
+              ) THEN b.emergency_name END AS emergency_name,
+              CASE WHEN $2 = 'owner' OR (
+                b.status = 'confirmed'
+                AND now() >= b.starts_at
+                AND now() < b.ends_at
+              ) THEN b.emergency_phone END AS emergency_phone,
               b.status, b.created_at, p.name AS pet_name,
               owner.display_name AS owner_name,
-              sitter.display_name AS sitter_name
+                      sitter.display_name AS sitter_name,
+                      COALESCE((
+                        SELECT json_agg(json_build_object(
+                          'id', ci.id, 'note', ci.note, 'created_at', ci.created_at
+                        ) ORDER BY ci.created_at)
+                          FROM sitter_check_ins ci
+                         WHERE ci.booking_id = b.id
+                      ), '[]'::json) AS updates
          FROM sitter_bookings b
          JOIN pets p ON p.id = b.pet_id
          JOIN users owner ON owner.id = b.owner_id
          JOIN users sitter ON sitter.id = b.sitter_id
         WHERE ${predicate}
         ORDER BY b.starts_at DESC`,
-      [req.user.id],
+      [req.user.id, req.user.activeRole],
     );
     res.json({ bookings: result.rows.map((row) => ({
       ...mapRow(row),
       petName: row.pet_name,
       ownerName: row.owner_name,
       sitterName: row.sitter_name,
+      updates: row.updates.map(mapRow),
     })) });
   }));
 
@@ -157,6 +179,46 @@ export function registerServiceRoutes(publicRouter, router, { pool, requireRole 
       `The booking was ${status}.`,
     );
     res.json({ booking: mapRow(booking) });
+  }));
+
+  router.post('/sitting/bookings/:id/check-ins', requireRole('sitter'), asyncRoute(async (req, res) => {
+    await requireVerifiedSupplyRole(req, pool);
+    const id = uuid.parse(req.params.id);
+    const { note } = sittingUpdateSchema.parse(req.body);
+    const checkIn = await inTransaction(pool, async (client) => {
+      const bookingResult = await client.query(
+        `SELECT id, owner_id
+           FROM sitter_bookings
+          WHERE id = $1 AND sitter_id = $2 AND status = 'confirmed'
+            AND now() >= starts_at AND now() < ends_at
+          FOR UPDATE`,
+        [id, req.user.id],
+      );
+      const booking = bookingResult.rows[0];
+      if (!booking) {
+        throw new HttpError(404, 'Active sitting booking was not found.');
+      }
+      const result = await client.query(
+        `INSERT INTO sitter_check_ins (booking_id, sitter_id, note)
+         VALUES ($1, $2, $3)
+         RETURNING id, booking_id, sitter_id, note, created_at`,
+        [id, req.user.id, note],
+      );
+      return { checkIn: result.rows[0], ownerId: booking.owner_id };
+    });
+    await createNotification(
+      pool,
+      checkIn.ownerId,
+      'Sitting care update',
+      'Your sitter shared an update during the booking.',
+    );
+    await writeAuditEvent(pool, {
+      actorId: req.user.id,
+      action: 'sitting.check_in_posted',
+      resourceType: 'sitter_booking',
+      resourceId: id,
+    });
+    res.status(201).json({ checkIn: mapRow(checkIn.checkIn) });
   }));
 
   router.post('/veterinary/availability', requireRole('veterinarian'), asyncRoute(async (req, res) => {
@@ -258,19 +320,40 @@ export function registerServiceRoutes(publicRouter, router, { pool, requireRole 
   router.post('/veterinary/appointments/:id/notes', requireRole('veterinarian'), asyncRoute(async (req, res) => {
     await requireVerifiedSupplyRole(req, pool);
     const id = uuid.parse(req.params.id);
-    const { notes } = z.object({
+    const body = z.object({
       notes: z.string().trim().min(1).max(4000),
+      followUp: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     }).strict().parse(req.body);
-    const result = await pool.query(
-      `UPDATE vet_appointments
-          SET consultation_notes = $3, status = 'Complete'
-        WHERE id = $1 AND veterinarian_id = $2 AND status = 'Confirmed'
-        RETURNING id, veterinarian_id, owner_id, pet_id, availability_id,
-                  appointment_type, status, consultation_notes, created_at`,
-      [id, req.user.id, notes],
-    );
-    const appointment = result.rows[0];
-    if (!appointment) throw new HttpError(404, 'Active appointment was not found.');
+    const appointment = await inTransaction(pool, async (client) => {
+      const current = await client.query(
+        `SELECT id, veterinarian_id, owner_id, pet_id, availability_id,
+                appointment_type, status
+           FROM vet_appointments
+          WHERE id = $1 AND veterinarian_id = $2 AND status = 'Confirmed'
+          FOR UPDATE`,
+        [id, req.user.id],
+      );
+      const row = current.rows[0];
+      if (!row) throw new HttpError(404, 'Active appointment was not found.');
+      await assertPetAccess(client, req, row.pet_id, 'health');
+      const updated = await client.query(
+        `UPDATE vet_appointments
+            SET consultation_notes = $2, status = 'Complete'
+          WHERE id = $1
+          RETURNING id, veterinarian_id, owner_id, pet_id, availability_id,
+                    appointment_type, status, consultation_notes, created_at`,
+        [id, body.notes],
+      );
+      await client.query(
+        `INSERT INTO health_records
+           (pet_id, created_by, title, record_type, provider, record_date,
+            next_due_at, vet_name)
+         VALUES ($1, $2, 'Consultation notes', 'consultation', $3,
+                 CURRENT_DATE, $4, $3)`,
+        [row.pet_id, req.user.id, req.user.display_name, body.followUp ?? null],
+      );
+      return updated.rows[0];
+    });
     await createNotification(
       pool,
       appointment.owner_id,
