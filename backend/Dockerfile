@@ -12,4 +12,3 @@ COPY migrations ./migrations
 USER node
 EXPOSE 3000
 CMD ["sh", "-c", "node src/migrate.js && if [ \"$SEED_DEMO_DATA\" = \"true\" ]; then node src/seed.js || exit 1; fi && node src/server.js"]
->>>>>>> 24ecb6467fbec18fd7e609611217a71dd686272b

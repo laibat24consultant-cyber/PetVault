@@ -10,7 +10,9 @@
     "web": "node src/web-proxy.js",
     "db:migrate": "node src/migrate.js",
     "db:seed": "node src/seed.js",
-    "test": "node --test"
+    "admin:provision": "node src/provision-admin.js",
+    "test": "node --test",
+    "test:integration": "node --test test/api.integration.test.js"
   },
   "engines": {
     "node": ">=22"
@@ -27,4 +29,3 @@
     "zod": "^4.1.12"
   }
 }
->>>>>>> 24ecb6467fbec18fd7e609611217a71dd686272b

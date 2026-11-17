@@ -8,6 +8,25 @@ import 'package:petvault/main.dart';
 import 'package:petvault/petvault_api.dart';
 
 void main() {
+  testWidgets('admin is not selectable in public onboarding',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(home: VaultPageView(page: AppPage.registration)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    await tester.pumpAndSettle();
+    expect(find.text('Admin'), findsNothing);
+
+    await tester.pumpWidget(
+      const MaterialApp(home: VaultPageView(page: AppPage.roleSelection)),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Admin'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('registration displays the development code on the OTP screen',
       (WidgetTester tester) async {
     final previousApi = PetVaultApp.api;
@@ -90,6 +109,9 @@ void main() {
             return http.Response(jsonEncode({'products': <Object>[]}), 200);
           case '/api/admin/kyc':
             return http.Response(jsonEncode({'submissions': <Object>[]}), 200);
+          case '/api/admin/dashboard':
+            return http.Response(
+                jsonEncode({'stats': <String, Object>{}}), 200);
           case '/api/admin/listings/moderation':
             return http.Response(jsonEncode({'listings': <Object>[]}), 200);
           default:
@@ -117,13 +139,14 @@ void main() {
     expect(requestedOrders, isFalse);
     expect(find.text('Admin dashboard'), findsWidgets);
 
-    await tester.ensureVisible(find.text('Admin role & access'));
-    await tester.tap(find.text('Admin role & access').first);
+    await tester.ensureVisible(find.text('Admin access'));
+    await tester.tap(find.text('Admin access').first);
     await tester.pumpAndSettle();
 
-    expect(find.text('Platform administrator · full review access'),
+    expect(find.text('Admin role & access'), findsWidgets);
+    expect(find.text('Platform administrator · backend-authorized access'),
         findsOneWidget);
-    expect(find.text('View screening details'), findsOneWidget);
+    expect(find.text('Review supported records'), findsOneWidget);
     expect(find.text('Authorize or reject verification'), findsOneWidget);
     expect(find.text('Approve or cancel listing requests'), findsOneWidget);
     expect(tester.takeException(), isNull);

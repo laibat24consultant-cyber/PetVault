@@ -97,6 +97,41 @@ class PetVaultApi {
     );
   }
 
+  Future<Map<String, dynamic>> confirmPasswordReset({
+    required String email,
+    required String code,
+    required String newPassword,
+  }) {
+    return _send(
+      'POST',
+      '/auth/password-reset/confirm',
+      body: <String, Object?>{
+        'email': email,
+        'code': code,
+        'newPassword': newPassword,
+      },
+    );
+  }
+
+  Future<Map<String, dynamic>> fetchAccountDeletionEligibility() {
+    return _send(
+      'GET',
+      '/account/deletion-eligibility',
+      authenticated: true,
+    );
+  }
+
+  Future<Map<String, dynamic>> deleteAccount() async {
+    final response = await _send(
+      'DELETE',
+      '/account',
+      authenticated: true,
+      body: <String, Object?>{'confirm': true},
+    );
+    signOut();
+    return response;
+  }
+
   Future<Map<String, dynamic>> signIn(String email, String password) async {
     final response = await _send(
       'POST',
@@ -418,6 +453,51 @@ class PetVaultApi {
     return _object(response['visitRequest']);
   }
 
+  Future<List<Map<String, dynamic>>> fetchConversations() async {
+    final response = await _send(
+      'GET',
+      '/conversations',
+      authenticated: true,
+    );
+    return _objectList(response['conversations']);
+  }
+
+  Future<List<Map<String, dynamic>>> fetchConversationMessages(
+      String conversationId) async {
+    final response = await _send(
+      'GET',
+      '/conversations/$conversationId/messages',
+      authenticated: true,
+    );
+    return _objectList(response['messages']);
+  }
+
+  Future<Map<String, dynamic>> createConversation({
+    required String listingId,
+    required String body,
+  }) async {
+    final response = await _send(
+      'POST',
+      '/conversations',
+      authenticated: true,
+      body: <String, Object?>{'listingId': listingId, 'body': body},
+    );
+    return _object(response['conversation']);
+  }
+
+  Future<Map<String, dynamic>> sendConversationMessage({
+    required String conversationId,
+    required String body,
+  }) async {
+    final response = await _send(
+      'POST',
+      '/conversations/$conversationId/messages',
+      authenticated: true,
+      body: <String, Object?>{'body': body},
+    );
+    return _object(response['message']);
+  }
+
   Future<List<Map<String, dynamic>>> fetchPetGrants(String petId) async {
     final response = await _send(
       'GET',
@@ -591,6 +671,230 @@ class PetVaultApi {
       },
     );
     return _object(response['listing']);
+  }
+
+  Future<List<Map<String, dynamic>>> fetchAdminListingReports() async {
+    final response = await _send(
+      'GET',
+      '/admin/listing-reports',
+      authenticated: true,
+    );
+    return _objectList(response['reports']);
+  }
+
+  Future<void> updateAdminListingReport({
+    required String reportId,
+    required String status,
+  }) async {
+    await _send(
+      'PATCH',
+      '/admin/listing-reports/$reportId',
+      authenticated: true,
+      body: <String, Object?>{'status': status},
+    );
+  }
+
+  Future<Map<String, dynamic>> fetchAdminDashboard() {
+    return _send('GET', '/admin/dashboard', authenticated: true);
+  }
+
+  Future<Map<String, dynamic>> fetchAdminUsers({
+    int page = 1,
+    String query = '',
+    String? role,
+    String? status,
+    bool? verified,
+  }) {
+    return _adminPage(
+      '/admin/users',
+      page: page,
+      query: query,
+      filters: <String, String?>{
+        'role': role,
+        'status': status,
+        'verified': verified?.toString(),
+      },
+    );
+  }
+
+  Future<Map<String, dynamic>> updateAdminUserStatus({
+    required String userId,
+    required String status,
+    required String reason,
+  }) async {
+    final response = await _send(
+      'PATCH',
+      '/admin/users/$userId/status',
+      authenticated: true,
+      body: <String, Object?>{'status': status, 'reason': reason},
+    );
+    return _object(response['user']);
+  }
+
+  Future<Map<String, dynamic>> fetchAdminListings({
+    int page = 1,
+    String query = '',
+    String? status,
+  }) {
+    return _adminPage(
+      '/admin/listings',
+      page: page,
+      query: query,
+      filters: <String, String?>{'status': status},
+    );
+  }
+
+  Future<Map<String, dynamic>> fetchAdminBookings({
+    int page = 1,
+    String query = '',
+    String? status,
+  }) {
+    return _adminPage(
+      '/admin/bookings',
+      page: page,
+      query: query,
+      filters: <String, String?>{'status': status},
+    );
+  }
+
+  Future<Map<String, dynamic>> fetchAdminAppointments({
+    int page = 1,
+    String query = '',
+    String? status,
+  }) {
+    return _adminPage(
+      '/admin/appointments',
+      page: page,
+      query: query,
+      filters: <String, String?>{'status': status},
+    );
+  }
+
+  Future<Map<String, dynamic>> fetchAdminOrders({
+    int page = 1,
+    String query = '',
+    String? status,
+    String? paymentStatus,
+  }) {
+    return _adminPage(
+      '/admin/orders',
+      page: page,
+      query: query,
+      filters: <String, String?>{
+        'status': status,
+        'paymentStatus': paymentStatus,
+      },
+    );
+  }
+
+  Future<Map<String, dynamic>> fetchAdminDisputes({
+    int page = 1,
+    String query = '',
+    String? status,
+  }) {
+    return _adminPage(
+      '/admin/disputes',
+      page: page,
+      query: query,
+      filters: <String, String?>{'status': status},
+    );
+  }
+
+  Future<Map<String, dynamic>> updateAdminDispute({
+    required String disputeId,
+    required String status,
+    String resolution = '',
+  }) async {
+    final response = await _send(
+      'PATCH',
+      '/admin/disputes/$disputeId',
+      authenticated: true,
+      body: <String, Object?>{'status': status, 'resolution': resolution},
+    );
+    return _object(response['dispute']);
+  }
+
+  Future<Map<String, dynamic>> fetchAdminReviews({
+    int page = 1,
+    String query = '',
+    String? subjectType,
+  }) {
+    return _adminPage(
+      '/admin/reviews',
+      page: page,
+      query: query,
+      filters: <String, String?>{'subjectType': subjectType},
+    );
+  }
+
+  Future<Map<String, dynamic>> fetchAdminNotifications({
+    int page = 1,
+    String query = '',
+    bool? read,
+  }) {
+    return _adminPage(
+      '/admin/notifications',
+      page: page,
+      query: query,
+      filters: <String, String?>{'read': read?.toString()},
+    );
+  }
+
+  Future<Map<String, dynamic>> fetchAdminAuditEvents({
+    int page = 1,
+    String query = '',
+    String? action,
+  }) {
+    return _adminPage(
+      '/admin/audit-events',
+      page: page,
+      query: query,
+      filters: <String, String?>{'action': action},
+    );
+  }
+
+  Future<Map<String, dynamic>> fetchAdminSupportRequests({
+    int page = 1,
+    String query = '',
+    String? status,
+  }) {
+    return _adminPage(
+      '/admin/support/requests',
+      page: page,
+      query: query,
+      filters: <String, String?>{'status': status},
+    );
+  }
+
+  Future<Map<String, dynamic>> updateAdminSupportRequest({
+    required String requestId,
+    required String status,
+  }) async {
+    final response = await _send(
+      'PATCH',
+      '/admin/support/requests/$requestId',
+      authenticated: true,
+      body: <String, Object?>{'status': status},
+    );
+    return _object(response['request']);
+  }
+
+  Future<Map<String, dynamic>> _adminPage(
+    String path, {
+    required int page,
+    required String query,
+    required Map<String, String?> filters,
+  }) {
+    final parameters = <String, String>{
+      'page': page.toString(),
+      'pageSize': '25',
+      if (query.trim().isNotEmpty) 'q': query.trim(),
+      for (final entry in filters.entries)
+        if (entry.value != null && entry.value!.isNotEmpty)
+          entry.key: entry.value!,
+    };
+    final queryString = Uri(queryParameters: parameters).query;
+    return _send('GET', '$path?$queryString', authenticated: true);
   }
 
   Future<Map<String, dynamic>> createPet({

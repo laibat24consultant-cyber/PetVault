@@ -97,17 +97,33 @@ entity-relationship diagram, including all tables and relationships, is in
 Administrator listing moderation now exposes transparent rule-based risk
 signals: unusually low comparable prices, normalized duplicate titles, multiple
 open reports, and unusually high seller listing volume. These scores only
-prioritize human review; they never automatically reject a listing. The tests
-include a small synthetic benchmark that exercises the plan's initial recall
-and false-positive thresholds. It is not evidence of production model
-performance; representative labeled cases and domain review are still needed.
+prioritize human review; they never automatically reject a listing. The admin
+workspace uses database-backed counts and paginated records for account
+management, listings and reports, bookings, appointments, orders, disputes,
+reviews, notifications, support requests, and audit events. Account suspension
+revokes existing sessions; dispute notes record administrative decisions but
+do not issue refunds or change payment settlement. The tests include a small
+synthetic risk benchmark; it is not evidence of production model performance.
+Representative labeled cases and domain review are still needed.
 
-With the stack running, the backend integration test can be run from PowerShell:
+`npm.cmd test` runs backend configuration tests. The PostgreSQL integration
+suite creates and drops a unique schema only in a local disposable database
+whose name begins with `petvault_test`; it refuses port `5432`. To run it, start
+a temporary database on another port:
 
 ```powershell
+docker run --rm --detach --name petvault-test-db `
+  -e POSTGRES_DB=petvault_test `
+  -e POSTGRES_USER=petvault_test `
+  -e POSTGRES_PASSWORD=petvault_test_only `
+  -p 5433:5432 postgres:17-alpine
+
 Push-Location backend
-npm.cmd test
+$env:TEST_DATABASE_URL='postgresql://petvault_test:petvault_test_only@127.0.0.1:5433/petvault_test'
+npm.cmd run test:integration
+Remove-Item Env:TEST_DATABASE_URL
 Pop-Location
+docker stop petvault-test-db
 ```
 
 The root [`.env.example`](./.env.example) runs a local project demo with fixed
@@ -126,6 +142,13 @@ production notification delivery, or shipping/carrier integration is
 configured. Health-record creation persists record metadata and an optional
 attachment name only; it does not upload the selected file bytes.
 
+To provision a real administrator, first apply migrations, then run
+`npm.cmd run admin:provision` from `backend` with `ADMIN_EMAIL`,
+`ADMIN_DISPLAY_NAME`, `ADMIN_PHONE`, and a strong `ADMIN_PASSWORD` supplied
+through the environment. Set `ADMIN_PROVISION_CONFIRM` to the exact email as a
+second confirmation. The command creates only a new verified admin account; it
+never promotes an existing account. Never use demo seeding for production.
+
 The repository is configured for Flutter Web. Flutter 3.19 or later is
 required; this workspace was set up and validated with Flutter 3.47.7. To
 launch from VS Code, open the project in a new VS Code window/terminal after
@@ -142,9 +165,10 @@ starts without seeded in-memory sample accounts or records. A few workflows
 that have no backend/provider implementation yet remain unavailable or
 session-only; they must not be treated as completed production services.
 Seller listings are account-scoped and edits return to moderation. Listing
-views, visits, reviews, and production analytics are not collected. Messaging
-and visit booking are not connected to backend services; the UI labels these
-capabilities as unavailable rather than reporting simulated activity.
+views, reviews, and production analytics are not collected. Messaging and visit
+requests are available in the Flutter client and persist in the backend, but do
+not have real-time or external delivery. Product-order messaging is not
+implemented.
 
 ## Optional local sample accounts
 
@@ -168,18 +192,48 @@ veterinarian, and vendor accounts have approved KYC for local testing. New
 accounts must submit KYC and be reviewed by an administrator before using
 supply-side API routes.
 
+## User-story implementation status
+
+The backend and Flutter client implement secure registration, OTP verification
+and reset, role checks and seller activation, KYC review, pet profiles and
+consent-based health-record access, account deletion with commitment checks,
+listing search/favorites/reports/moderation, visit requests and in-app
+messaging, sitter bookings, vet slots and appointments, product inventory,
+orders and vendor-specific fulfillment status, notifications, and support
+requests. Automated PostgreSQL tests cover critical authorization, ownership,
+expiry, lockout, payment-failure, moderation, and privacy paths.
+
+The following user-story requirements remain incomplete or provider-dependent:
+
+| Epic | Remaining boundary |
+| --- | --- |
+| Identity and onboarding | Email delivery requires configured Resend; production SMS and identity-document KYC adapters are not configured. |
+| Pet health records | Attachment names/metadata persist, but document bytes are not uploaded or stored. |
+| Pet marketplace | Listings can be moderated and messaged about; protected pet-purchase escrow, handover confirmation, automatic release, and transaction disputes are not enabled. |
+| Sitting and boarding | Booking requests/statuses work; sitter profile calendars, check-in updates, and ratings are not implemented. |
+| Veterinary care | Verified vets can publish slots and owners can book; tele-consult video, license-provider checks, and vet reviews are not connected. |
+| Product commerce | Catalog, inventory, demo checkout, and vendor-specific fulfillment work; production payment, delivery, variants, and product reviews are not configured. |
+| Trust and moderation | KYC, listing, report, support, dispute, and audit workflows are database-backed; real refunds and external payment settlement are not available. |
+| Recommendations | No personalized recommendation service or evaluated production model is connected. |
+| Support and triage | Support requests persist; no grounded chatbot or veterinary triage model is connected. |
+| Notifications | In-app notifications are stored for key events; push/email delivery, preferences, and scheduled vaccination reminders are not configured. |
+| Admin analytics | The dashboard and operational record views are database-backed; payment settlement, document uploads, and production delivery remain provider-dependent. |
+
+These boundaries are intentional: no fake payment, document upload, AI response,
+or production provider success is reported. Use only synthetic information in
+the local development environment.
+
 ## Prototype and service boundaries
 
-Authentication, pet profiles, health-record metadata, KYC submission,
-marketplace listing reads/submissions/moderation, product catalog management,
-and vendor order status use the backend when signed in. Checkout is disabled
-because payments and delivery are not configured. Other workflows without
-backend support remain session-only or unavailable, and the backend is not a
-production-ready service. It does **not** upload identity or health documents,
-verify licenses, send email/SMS/push notifications, deliver messages to another
-user, connect video calls, or create downloadable exports. Triage is
-care-routing guidance, not diagnosis or veterinary advice. Use only synthetic
-information with the local development environment.
+Authentication, pet profiles, health-record metadata, KYC review,
+marketplace moderation and messaging, booking, vet availability, product
+catalog and order workflows use the backend when signed in. Checkout is a
+local mock only when explicitly configured; it never charges a payment method.
+The backend is not a production-ready service. It does **not** upload identity
+or health documents, verify licenses, send SMS/push notifications, connect
+video calls, or create downloadable exports. Triage is care-routing guidance,
+not diagnosis or veterinary advice. Use only synthetic information with the
+local development environment.
 
 Validate changes with:
 

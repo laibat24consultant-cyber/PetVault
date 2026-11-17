@@ -16,11 +16,15 @@ const _teal = Color(0xFF427C77);
 const _line = Color(0xFFE2D8CC);
 const _paleTeal = Color(0xFFE8F1EE);
 const _sand = Color(0xFFF1ECE4);
+const _desktopBreakpoint = 1024.0;
+const _wideNavigationBreakpoint = 1360.0;
+const _welcomeBreakpoint = 840.0;
 
 enum AppPage {
   splash,
   welcome,
   authentication,
+  passwordReset,
   registration,
   otp,
   roleSelection,
@@ -65,11 +69,19 @@ enum AppPage {
   activeSitting,
   adminDashboard,
   adminAccess,
+  adminUsers,
   kycQueue,
   identityApproval,
   riskQueue,
+  adminListings,
   listingModeration,
+  adminBookings,
+  adminAppointments,
+  adminOrders,
   disputes,
+  adminReviews,
+  adminNotifications,
+  adminSupport,
   auditTrail,
   userSettings,
   dataPrivacy,
@@ -162,11 +174,19 @@ const _catalogGroups = <String, List<AppPage>>{
   'Trust & administration': <AppPage>[
     AppPage.adminDashboard,
     AppPage.adminAccess,
+    AppPage.adminUsers,
     AppPage.kycQueue,
     AppPage.identityApproval,
     AppPage.riskQueue,
+    AppPage.adminListings,
     AppPage.listingModeration,
+    AppPage.adminBookings,
+    AppPage.adminAppointments,
+    AppPage.adminOrders,
     AppPage.disputes,
+    AppPage.adminReviews,
+    AppPage.adminNotifications,
+    AppPage.adminSupport,
     AppPage.auditTrail,
   ],
   'Account & communication': <AppPage>[
@@ -274,16 +294,32 @@ String _titleFor(AppPage page) {
       return 'Admin dashboard';
     case AppPage.adminAccess:
       return 'Admin role & access';
+    case AppPage.adminUsers:
+      return 'User management';
     case AppPage.kycQueue:
       return 'KYC verification queue';
     case AppPage.identityApproval:
       return 'Identity approval';
     case AppPage.riskQueue:
-      return 'AI risk flags';
+      return 'Listing risk signals';
+    case AppPage.adminListings:
+      return 'All pet listings';
     case AppPage.listingModeration:
       return 'Listing moderation';
+    case AppPage.adminBookings:
+      return 'Sitting bookings';
+    case AppPage.adminAppointments:
+      return 'Veterinary appointments';
+    case AppPage.adminOrders:
+      return 'Marketplace orders';
     case AppPage.disputes:
       return 'Disputes & cancellations';
+    case AppPage.adminReviews:
+      return 'Reviews & ratings';
+    case AppPage.adminNotifications:
+      return 'Notification activity';
+    case AppPage.adminSupport:
+      return 'Support requests';
     case AppPage.auditTrail:
       return 'Audit trail';
     case AppPage.userSettings:
@@ -316,11 +352,19 @@ bool _isOnboarding(AppPage page) => const <AppPage>{
 bool _isAdmin(AppPage page) => const <AppPage>{
       AppPage.adminDashboard,
       AppPage.adminAccess,
+      AppPage.adminUsers,
       AppPage.kycQueue,
       AppPage.identityApproval,
       AppPage.riskQueue,
+      AppPage.adminListings,
       AppPage.listingModeration,
+      AppPage.adminBookings,
+      AppPage.adminAppointments,
+      AppPage.adminOrders,
       AppPage.disputes,
+      AppPage.adminReviews,
+      AppPage.adminNotifications,
+      AppPage.adminSupport,
       AppPage.auditTrail,
     }.contains(page);
 
@@ -483,6 +527,7 @@ class _VaultPageViewState extends State<VaultPageView> {
   String? _passwordResetDevCode;
   List<Map<String, dynamic>> _remoteModerationListings =
       <Map<String, dynamic>>[];
+  List<Map<String, dynamic>> _remoteListingReports = <Map<String, dynamic>>[];
   List<Map<String, dynamic>> _remoteSitters = <Map<String, dynamic>>[];
   List<Map<String, dynamic>> _remoteVets = <Map<String, dynamic>>[];
   List<Map<String, dynamic>> _remoteVetAvailability = <Map<String, dynamic>>[];
@@ -491,7 +536,25 @@ class _VaultPageViewState extends State<VaultPageView> {
   List<Map<String, dynamic>> _remoteKyc = <Map<String, dynamic>>[];
   List<Map<String, dynamic>> _remoteNotifications = <Map<String, dynamic>>[];
   List<Map<String, dynamic>> _remoteVisitRequests = <Map<String, dynamic>>[];
+  List<Map<String, dynamic>> _remoteConversations = <Map<String, dynamic>>[];
+  List<Map<String, dynamic>> _remoteMessages = <Map<String, dynamic>>[];
+  List<Map<String, dynamic>> _adminRecords = <Map<String, dynamic>>[];
+  Map<String, dynamic> _adminStats = <String, dynamic>{};
+  int _adminTotal = 0;
+  int _adminPage = 1;
+  String _adminRoleFilter = 'all';
+  String _adminStatusFilter = 'all';
+  String _adminVerifiedFilter = 'all';
+  bool _adminLoading = true;
+  bool _adminReportsLoading = true;
+  String? _adminLoadError;
+  String? _selectedConversationId;
+  bool _conversationsLoading = true;
+  bool _messagesLoading = false;
+  bool _messageSubmitting = false;
   bool _remoteModerationLoaded = false;
+  String? _moderationLoadError;
+  String? _adminReportsError;
   int get _cartCount =>
       _store.cart.values.fold<int>(0, (sum, quantity) => sum + quantity);
   final Map<String, bool> _notificationSettings = <String, bool>{
@@ -564,7 +627,6 @@ class _VaultPageViewState extends State<VaultPageView> {
     }
     if (_api.isAuthenticated && widget.page == AppPage.adminDashboard) {
       _loadRemoteKycQueue();
-      _loadRemoteListings();
     }
     if (_api.isAuthenticated && widget.page == AppPage.kycVerification) {
       _loadRemoteMyKyc();
@@ -582,8 +644,20 @@ class _VaultPageViewState extends State<VaultPageView> {
       _loadRemoteVisitRequests();
     }
     if (_api.isAuthenticated &&
-        (_isAdmin(widget.page) || widget.page == AppPage.riskQueue)) {
+        (widget.page == AppPage.buyerSellerMessaging ||
+            widget.page == AppPage.chat)) {
+      _loadRemoteConversations();
+    }
+    if (_api.isAuthenticated &&
+        (widget.page == AppPage.riskQueue ||
+            widget.page == AppPage.listingModeration)) {
       _loadRemoteModerationListings();
+    }
+    if (_api.isAuthenticated && widget.page == AppPage.riskQueue) {
+      _loadRemoteListingReports();
+    }
+    if (_api.isAuthenticated && _isAdmin(widget.page)) {
+      _loadAdminData();
     }
     if (widget.page == AppPage.editListing) {
       final listing = _store.listings[PetVaultApp.selectedListingId];
@@ -686,6 +760,154 @@ class _VaultPageViewState extends State<VaultPageView> {
     }
   }
 
+  Future<void> _loadAdminData() async {
+    if (!_api.isAuthenticated || _api.activeRole != 'admin') return;
+    if (mounted) {
+      setState(() {
+        _adminLoading = true;
+        _adminLoadError = null;
+      });
+    }
+    try {
+      Map<String, dynamic> response;
+      final query = _queryController.text.trim();
+      final status = _adminStatusFilter == 'all' ? null : _adminStatusFilter;
+      switch (widget.page) {
+        case AppPage.adminDashboard:
+          response = await _api.fetchAdminDashboard();
+          final stats = response['stats'];
+          if (stats is! Map<String, dynamic>) {
+            throw const FormatException(
+                'The backend returned invalid dashboard statistics.');
+          }
+          if (mounted) {
+            setState(() => _adminStats = stats);
+          }
+          return;
+        case AppPage.adminUsers:
+          response = await _api.fetchAdminUsers(
+            page: _adminPage,
+            query: query,
+            role: _adminRoleFilter == 'all' ? null : _adminRoleFilter,
+            status: status,
+            verified: _adminVerifiedFilter == 'all'
+                ? null
+                : _adminVerifiedFilter == 'verified',
+          );
+          break;
+        case AppPage.adminListings:
+          response = await _api.fetchAdminListings(
+            page: _adminPage,
+            query: query,
+            status: status,
+          );
+          break;
+        case AppPage.adminBookings:
+          response = await _api.fetchAdminBookings(
+            page: _adminPage,
+            query: query,
+            status: status,
+          );
+          break;
+        case AppPage.adminAppointments:
+          response = await _api.fetchAdminAppointments(
+            page: _adminPage,
+            query: query,
+            status: status,
+          );
+          break;
+        case AppPage.adminOrders:
+          response = await _api.fetchAdminOrders(
+            page: _adminPage,
+            query: query,
+            status: _adminStatusFilter == 'all' ||
+                    _adminStatusFilter.startsWith('payment:')
+                ? null
+                : _adminStatusFilter,
+            paymentStatus: _adminStatusFilter.startsWith('payment:')
+                ? _adminStatusFilter.substring('payment:'.length)
+                : null,
+          );
+          break;
+        case AppPage.disputes:
+          response = await _api.fetchAdminDisputes(
+            page: _adminPage,
+            query: query,
+            status: status,
+          );
+          break;
+        case AppPage.adminReviews:
+          response = await _api.fetchAdminReviews(
+            page: _adminPage,
+            query: query,
+            subjectType:
+                _adminStatusFilter == 'all' ? null : _adminStatusFilter,
+          );
+          break;
+        case AppPage.adminNotifications:
+          response = await _api.fetchAdminNotifications(
+            page: _adminPage,
+            query: query,
+            read: _adminStatusFilter == 'all'
+                ? null
+                : _adminStatusFilter == 'read',
+          );
+          break;
+        case AppPage.adminSupport:
+          response = await _api.fetchAdminSupportRequests(
+            page: _adminPage,
+            query: query,
+            status: status,
+          );
+          break;
+        case AppPage.auditTrail:
+          response = await _api.fetchAdminAuditEvents(
+            page: _adminPage,
+            query: query,
+          );
+          break;
+        default:
+          return;
+      }
+      final rawItems = response['items'];
+      if (rawItems is! List<Object?>) {
+        throw const FormatException(
+            'The backend returned an invalid administrative record list.');
+      }
+      final records = <Map<String, dynamic>>[];
+      for (final item in rawItems) {
+        if (item is! Map<String, dynamic>) {
+          throw const FormatException(
+              'The backend returned an invalid administrative record.');
+        }
+        records.add(item);
+      }
+      final total = response['total'];
+      if (total is! num) {
+        throw const FormatException(
+            'The backend returned invalid pagination metadata.');
+      }
+      if (mounted) {
+        setState(() {
+          _adminRecords = records;
+          _adminTotal = total.toInt();
+        });
+      }
+    } on PetVaultApiException catch (error) {
+      if (mounted) {
+        setState(() => _adminLoadError = error.message);
+        _showApiError(error);
+      }
+    } on FormatException catch (error) {
+      if (mounted) {
+        setState(() => _adminLoadError = error.message);
+        _showApiError(error);
+      }
+    } finally {
+      if (mounted) setState(() => _adminLoading = false);
+    }
+  }
+
   Future<void> _loadRemoteNotifications() async {
     try {
       final notifications = await _api.fetchNotifications();
@@ -705,6 +927,116 @@ class _VaultPageViewState extends State<VaultPageView> {
       if (mounted) _showApiError(error);
     } on FormatException catch (error) {
       if (mounted) _showApiError(error);
+    }
+  }
+
+  Future<void> _loadRemoteConversations() async {
+    try {
+      final conversations = await _api.fetchConversations();
+      if (!mounted) return;
+      final listingId = PetVaultApp.selectedListingId;
+      var selectedId = _selectedConversationId;
+      if (selectedId == null && _api.activeRole == 'owner') {
+        for (final conversation in conversations) {
+          if (conversation['listingId'] == listingId &&
+              conversation['id'] is String) {
+            selectedId = conversation['id'] as String;
+            break;
+          }
+        }
+      }
+      setState(() {
+        _remoteConversations = conversations;
+        _selectedConversationId = selectedId;
+        _conversationsLoading = false;
+      });
+      if (selectedId != null) await _loadRemoteMessages(selectedId);
+    } on PetVaultApiException catch (error) {
+      if (mounted) {
+        setState(() => _conversationsLoading = false);
+        _showApiError(error);
+      }
+    } on FormatException catch (error) {
+      if (mounted) {
+        setState(() => _conversationsLoading = false);
+        _showApiError(error);
+      }
+    }
+  }
+
+  Future<void> _loadRemoteMessages(String conversationId) async {
+    if (!mounted) return;
+    setState(() {
+      _selectedConversationId = conversationId;
+      _remoteMessages = <Map<String, dynamic>>[];
+      _messagesLoading = true;
+    });
+    try {
+      final messages = await _api.fetchConversationMessages(conversationId);
+      if (!mounted || _selectedConversationId != conversationId) return;
+      setState(() {
+        _remoteMessages = messages;
+      });
+    } on PetVaultApiException catch (error) {
+      if (mounted && _selectedConversationId == conversationId) {
+        _showApiError(error);
+      }
+    } on FormatException catch (error) {
+      if (mounted && _selectedConversationId == conversationId) {
+        _showApiError(error);
+      }
+    } finally {
+      if (mounted && _selectedConversationId == conversationId) {
+        setState(() => _messagesLoading = false);
+      }
+    }
+  }
+
+  Future<void> _sendMarketplaceMessage() async {
+    final body = _messageController.text.trim();
+    if (body.isEmpty || _messageSubmitting) return;
+    if (!_api.isAuthenticated) {
+      _toast('Sign in before messaging a seller.');
+      return;
+    }
+    final conversationId = _selectedConversationId;
+    if (conversationId == null &&
+        (_api.activeRole != 'owner' ||
+            !_store.listings.containsKey(PetVaultApp.selectedListingId))) {
+      _toast('Select an active listing to start a conversation.');
+      return;
+    }
+    setState(() => _messageSubmitting = true);
+    try {
+      String targetConversationId;
+      if (conversationId == null) {
+        final conversation = await _api.createConversation(
+          listingId: PetVaultApp.selectedListingId,
+          body: body,
+        );
+        final id = conversation['id'];
+        if (id is! String) {
+          throw const FormatException(
+              'The backend returned an invalid conversation.');
+        }
+        targetConversationId = id;
+      } else {
+        await _api.sendConversationMessage(
+          conversationId: conversationId,
+          body: body,
+        );
+        targetConversationId = conversationId;
+      }
+      _messageController.clear();
+      await _loadRemoteConversations();
+      if (!mounted) return;
+      await _loadRemoteMessages(targetConversationId);
+    } on PetVaultApiException catch (error) {
+      _showApiError(error);
+    } on FormatException catch (error) {
+      _showApiError(error);
+    } finally {
+      if (mounted) setState(() => _messageSubmitting = false);
     }
   }
 
@@ -802,15 +1134,47 @@ class _VaultPageViewState extends State<VaultPageView> {
       setState(() {
         _remoteModerationListings = listings;
         _remoteModerationLoaded = true;
+        _moderationLoadError = null;
       });
     } on PetVaultApiException catch (error) {
       if (!mounted) return;
-      setState(() => _remoteModerationLoaded = true);
+      setState(() {
+        _remoteModerationLoaded = true;
+        _moderationLoadError = error.message;
+      });
       _showApiError(error);
     } on FormatException catch (error) {
       if (!mounted) return;
-      setState(() => _remoteModerationLoaded = true);
+      setState(() {
+        _remoteModerationLoaded = true;
+        _moderationLoadError = error.message;
+      });
       _showApiError(error);
+    }
+  }
+
+  Future<void> _loadRemoteListingReports() async {
+    if (mounted) {
+      setState(() {
+        _adminReportsLoading = true;
+        _adminReportsError = null;
+      });
+    }
+    try {
+      final reports = await _api.fetchAdminListingReports();
+      if (mounted) setState(() => _remoteListingReports = reports);
+    } on PetVaultApiException catch (error) {
+      if (mounted) {
+        setState(() => _adminReportsError = error.message);
+        _showApiError(error);
+      }
+    } on FormatException catch (error) {
+      if (mounted) {
+        setState(() => _adminReportsError = error.message);
+        _showApiError(error);
+      }
+    } finally {
+      if (mounted) setState(() => _adminReportsLoading = false);
     }
   }
 
@@ -1573,8 +1937,16 @@ class _VaultPageViewState extends State<VaultPageView> {
         Icons.favorite_border_rounded,
       AppPage.vetDirectory ||
       AppPage.vetAvailability ||
-      AppPage.teleConsultation =>
+      AppPage.teleConsultation ||
+      AppPage.adminAppointments =>
         Icons.medical_services_outlined,
+      AppPage.adminUsers => Icons.people_alt_outlined,
+      AppPage.adminListings => Icons.pets_outlined,
+      AppPage.adminBookings => Icons.calendar_month_outlined,
+      AppPage.adminOrders => Icons.receipt_long_outlined,
+      AppPage.adminReviews => Icons.star_outline_rounded,
+      AppPage.adminNotifications => Icons.notifications_none_rounded,
+      AppPage.adminSupport => Icons.support_agent_rounded,
       AppPage.kycQueue ||
       AppPage.identityApproval ||
       AppPage.adminAccess =>
@@ -1629,39 +2001,86 @@ class _VaultPageViewState extends State<VaultPageView> {
     return 0;
   }
 
+  List<String> _tabLabels() {
+    if (_isAdmin(widget.page)) {
+      return const <String>['Overview', 'KYC', 'Risk', 'Audit'];
+    }
+    if (_isVendor(widget.page)) {
+      return const <String>['Overview', 'Products', 'Orders', 'Store'];
+    }
+    return const <String>['Home', 'Pets', 'Market', 'Sitters', 'Chat'];
+  }
+
+  List<IconData> _tabIcons() {
+    if (_isAdmin(widget.page)) {
+      return const <IconData>[
+        Icons.dashboard_outlined,
+        Icons.verified_user_outlined,
+        Icons.warning_amber_rounded,
+        Icons.history_rounded,
+      ];
+    }
+    if (_isVendor(widget.page)) {
+      return const <IconData>[
+        Icons.dashboard_outlined,
+        Icons.inventory_2_outlined,
+        Icons.receipt_long_outlined,
+        Icons.storefront_outlined,
+      ];
+    }
+    return const <IconData>[
+      Icons.home_outlined,
+      Icons.pets_outlined,
+      Icons.shopping_cart_outlined,
+      Icons.home_work_outlined,
+      Icons.chat_bubble_outline_rounded,
+    ];
+  }
+
+  Widget _desktopNavigationRail(double viewportWidth) {
+    final tabs = _tabs();
+    final labels = _tabLabels();
+    final icons = _tabIcons();
+    final extended = viewportWidth >= _wideNavigationBreakpoint;
+
+    return NavigationRail(
+      key: const ValueKey<String>('petvault-desktop-navigation'),
+      backgroundColor: _cream,
+      selectedIndex: _selectedTab(tabs),
+      onDestinationSelected: (index) => _switchTab(tabs[index]),
+      extended: extended,
+      labelType:
+          extended ? NavigationRailLabelType.none : NavigationRailLabelType.all,
+      minWidth: 76,
+      minExtendedWidth: 208,
+      groupAlignment: -1,
+      leading: const Padding(
+        padding: EdgeInsets.fromLTRB(0, 20, 0, 20),
+        child: Icon(Icons.pets_rounded, color: _teal, size: 25),
+      ),
+      destinations: List<NavigationRailDestination>.generate(
+        tabs.length,
+        (index) => NavigationRailDestination(
+          icon: Icon(icons[index]),
+          label: Text(labels[index]),
+        ),
+      ),
+    );
+  }
+
   Widget? _bottomBar() {
-    if (_isOnboarding(widget.page)) return null;
+    if (_isOnboarding(widget.page) ||
+        MediaQuery.sizeOf(context).width >= _desktopBreakpoint) {
+      return null;
+    }
 
     final tabs = _tabs();
     final selected = _selectedTab(tabs);
-    final labels = _isAdmin(widget.page)
-        ? const <String>['Overview', 'KYC', 'Risk', 'Audit']
-        : _isVendor(widget.page)
-            ? const <String>['Overview', 'Products', 'Orders', 'Store']
-            : const <String>['Home', 'Pets', 'Market', 'Sitters', 'Chat'];
-    final icons = _isAdmin(widget.page)
-        ? const <IconData>[
-            Icons.dashboard_outlined,
-            Icons.verified_user_outlined,
-            Icons.warning_amber_rounded,
-            Icons.history_rounded,
-          ]
-        : _isVendor(widget.page)
-            ? const <IconData>[
-                Icons.dashboard_outlined,
-                Icons.inventory_2_outlined,
-                Icons.receipt_long_outlined,
-                Icons.storefront_outlined,
-              ]
-            : const <IconData>[
-                Icons.home_outlined,
-                Icons.pets_outlined,
-                Icons.shopping_cart_outlined,
-                Icons.home_work_outlined,
-                Icons.chat_bubble_outline_rounded,
-              ];
+    final labels = _tabLabels();
+    final icons = _tabIcons();
 
     return Container(
+      key: const ValueKey<String>('petvault-bottom-navigation'),
       decoration: const BoxDecoration(
         color: _cream,
         border: Border(top: BorderSide(color: _line)),
@@ -1718,6 +2137,29 @@ class _VaultPageViewState extends State<VaultPageView> {
   }
 
   Widget _screenBody() {
+    if (_isAdmin(widget.page) &&
+        (!_api.isAuthenticated || _api.activeRole != 'admin')) {
+      return _scroll(
+        <Widget>[
+          _title('Administrator access required'),
+          const SizedBox(height: 12),
+          _card(
+            Text(
+              _api.isAuthenticated
+                  ? 'This account does not have the administrator role.'
+                  : 'Sign in with an authorized administrator account to continue.',
+            ),
+          ),
+          const SizedBox(height: 12),
+          _button(
+            _api.isAuthenticated ? 'Return home' : 'Sign in',
+            () => _api.isAuthenticated
+                ? _switchTab(AppPage.home)
+                : _open(AppPage.authentication),
+          ),
+        ],
+      );
+    }
     switch (widget.page) {
       case AppPage.splash:
         return _splash();
@@ -1816,16 +2258,32 @@ class _VaultPageViewState extends State<VaultPageView> {
         return _adminDashboard();
       case AppPage.adminAccess:
         return _adminAccess();
+      case AppPage.adminUsers:
+        return _adminUsers();
       case AppPage.kycQueue:
         return _kycQueue();
       case AppPage.identityApproval:
         return _identityApproval();
       case AppPage.riskQueue:
         return _riskQueue();
+      case AppPage.adminListings:
+        return _adminListings();
       case AppPage.listingModeration:
         return _listingModeration();
+      case AppPage.adminBookings:
+        return _adminBookings();
+      case AppPage.adminAppointments:
+        return _adminAppointments();
+      case AppPage.adminOrders:
+        return _adminOrders();
       case AppPage.disputes:
         return _disputes();
+      case AppPage.adminReviews:
+        return _adminReviews();
+      case AppPage.adminNotifications:
+        return _adminNotifications();
+      case AppPage.adminSupport:
+        return _adminSupport();
       case AppPage.auditTrail:
         return _auditTrail();
       case AppPage.userSettings:
@@ -1852,21 +2310,45 @@ class _VaultPageViewState extends State<VaultPageView> {
         body: SafeArea(
           child: LayoutBuilder(
             builder: (context, constraints) {
+              final viewportWidth = constraints.maxWidth;
               final isAuthPage = const <AppPage>{
-                AppPage.welcome,
                 AppPage.authentication,
+                AppPage.passwordReset,
                 AppPage.registration,
                 AppPage.otp,
               }.contains(widget.page);
-              final maxWidth = isAuthPage ? 560.0 : 1120.0;
+              final isNarrowWelcome = widget.page == AppPage.welcome &&
+                  viewportWidth < _welcomeBreakpoint;
+              final maxWidth = isAuthPage || isNarrowWelcome ? 560.0 : 1120.0;
+              final pageBody = SizedBox(
+                width: viewportWidth > maxWidth ? maxWidth : viewportWidth,
+                child: _screenBody(),
+              );
+
+              if (viewportWidth >= _desktopBreakpoint &&
+                  !_isOnboarding(widget.page)) {
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    _desktopNavigationRail(viewportWidth),
+                    const VerticalDivider(
+                      width: 1,
+                      thickness: 1,
+                      color: _line,
+                    ),
+                    Expanded(
+                      child: Align(
+                        alignment: Alignment.topCenter,
+                        child: pageBody,
+                      ),
+                    ),
+                  ],
+                );
+              }
+
               return Align(
                 alignment: Alignment.topCenter,
-                child: SizedBox(
-                  width: constraints.maxWidth > maxWidth
-                      ? maxWidth
-                      : constraints.maxWidth,
-                  child: _screenBody(),
-                ),
+                child: pageBody,
               );
             },
           ),
@@ -2210,44 +2692,127 @@ class _VaultPageViewState extends State<VaultPageView> {
   }
 
   Widget _welcome() {
-    return _scroll(
-      <Widget>[
-        const SizedBox(height: 20),
-        Center(child: Image.asset('assets/images/brand.png', width: 112)),
-        const SizedBox(height: 22),
-        _photo('assets/images/welcome_pet.png',
-            height: 245, width: double.infinity),
-        const SizedBox(height: 24),
-        _title(
-          'Care for every part of their life.',
-          subtitle:
-              'Health records, trusted care, and a safer pet marketplace in one place.',
-        ),
-        const SizedBox(height: 18),
-        _card(
-          const Row(
-            children: <Widget>[
-              Icon(Icons.verified_user_outlined, color: _teal),
-              SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Verified people. Owner-controlled records. Care that travels with your pet.',
-                  style: TextStyle(color: _ink, height: 1.35),
-                ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth >= _welcomeBreakpoint) {
+          final minHeight =
+              constraints.maxHeight > 48 ? constraints.maxHeight - 48 : 0.0;
+          return SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: minHeight),
+              child: Row(
+                key: const ValueKey<String>('welcome-desktop-layout'),
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: <Widget>[
+                  Expanded(
+                    flex: 6,
+                    child: _photo(
+                      'assets/images/welcome_pet.png',
+                      height: 500,
+                      width: double.infinity,
+                      radius: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 48),
+                  Expanded(
+                    flex: 5,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Image.asset('assets/images/brand.png', width: 132),
+                        const SizedBox(height: 38),
+                        const Text(
+                          'Care for every part of their life.',
+                          style: TextStyle(
+                            color: _ink,
+                            fontSize: 36,
+                            height: 1.12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'Health records, trusted care, and a safer pet marketplace in one place.',
+                          style: TextStyle(color: _muted, fontSize: 16),
+                        ),
+                        const SizedBox(height: 24),
+                        _card(
+                          const Row(
+                            children: <Widget>[
+                              Icon(Icons.verified_user_outlined, color: _teal),
+                              SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  'Verified people. Owner-controlled records. Care that travels with your pet.',
+                                  style: TextStyle(color: _ink, height: 1.35),
+                                ),
+                              ),
+                            ],
+                          ),
+                          color: _paleTeal,
+                        ),
+                        const SizedBox(height: 24),
+                        _button(
+                          'Continue',
+                          () => _open(AppPage.authentication),
+                        ),
+                        const SizedBox(height: 10),
+                        _button(
+                          'Browse pets and products',
+                          () => _open(AppPage.marketplace),
+                          primary: false,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
-          color: _paleTeal,
-        ),
-        const SizedBox(height: 20),
-        _button('Continue', () => _open(AppPage.authentication)),
-        const SizedBox(height: 10),
-        _button(
-          'Browse pets and products',
-          () => _open(AppPage.marketplace),
-          primary: false,
-        ),
-      ],
+            ),
+          );
+        }
+
+        return _scroll(
+          <Widget>[
+            const SizedBox(height: 20),
+            Center(child: Image.asset('assets/images/brand.png', width: 112)),
+            const SizedBox(height: 22),
+            _photo('assets/images/welcome_pet.png',
+                height: 245, width: double.infinity),
+            const SizedBox(height: 24),
+            _title(
+              'Care for every part of their life.',
+              subtitle:
+                  'Health records, trusted care, and a safer pet marketplace in one place.',
+            ),
+            const SizedBox(height: 18),
+            _card(
+              const Row(
+                children: <Widget>[
+                  Icon(Icons.verified_user_outlined, color: _teal),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Verified people. Owner-controlled records. Care that travels with your pet.',
+                      style: TextStyle(color: _ink, height: 1.35),
+                    ),
+                  ),
+                ],
+              ),
+              color: _paleTeal,
+            ),
+            const SizedBox(height: 20),
+            _button('Continue', () => _open(AppPage.authentication)),
+            const SizedBox(height: 10),
+            _button(
+              'Browse pets and products',
+              () => _open(AppPage.marketplace),
+              primary: false,
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -2494,10 +3059,6 @@ class _VaultPageViewState extends State<VaultPageView> {
               child: Text('Pet parent'),
             ),
             DropdownMenuItem<String>(
-              value: 'admin',
-              child: Text('Admin'),
-            ),
-            DropdownMenuItem<String>(
               value: 'seller',
               child: Text('Seller'),
             ),
@@ -2674,18 +3235,10 @@ class _VaultPageViewState extends State<VaultPageView> {
             setState(() => _otpSubmitting = true);
             try {
               final user = await _api.verifyAccount(_otpController.text.trim());
-              final finalUser = <String, dynamic>{
-                ...user,
-                'roles': <String>[_selectedSignupRole],
-              };
-              _store.activateRemoteSession(finalUser);
+              _store.activateRemoteSession(user);
               await _loadSignedInData();
               if (!mounted) return;
-              if (_selectedSignupRole == 'admin') {
-                _open(AppPage.adminDashboard);
-              } else {
-                _open(AppPage.roleSelection);
-              }
+              _open(AppPage.roleSelection);
             } on PetVaultApiException catch (error) {
               _showApiError(error);
             } on FormatException catch (error) {
@@ -2703,11 +3256,6 @@ class _VaultPageViewState extends State<VaultPageView> {
   Widget _roleSelection() {
     final roles = <(String, String, IconData)>[
       ('Pet parent', 'Manage profiles and care records', Icons.pets_outlined),
-      (
-        'Admin',
-        'Review KYC, moderation, and platform operations',
-        Icons.admin_panel_settings_outlined
-      ),
       (
         'Breeder / seller',
         'Create a trusted pet listing',
@@ -2741,18 +3289,6 @@ class _VaultPageViewState extends State<VaultPageView> {
                     } else {
                       _toast(_store.lastError ?? 'Owner role is unavailable.');
                     }
-                    return;
-                  }
-                  if (role.$1 == 'Admin') {
-                    if (!_store.selectInitialSupplyRole(PetVaultRole.admin)) {
-                      _toast(_store.lastError ?? 'Admin role is unavailable.');
-                      return;
-                    }
-                    if (_api.canSelectRole('admin')) {
-                      await _api.selectRole('admin');
-                    }
-                    _selectedRole = 'admin';
-                    _open(AppPage.adminDashboard);
                     return;
                   }
                   if (role.$1 == 'Breeder / seller') {
@@ -4463,14 +4999,12 @@ class _VaultPageViewState extends State<VaultPageView> {
           children: <Widget>[
             Expanded(
                 child: _button('Contact seller', () {
-              _toast(
-                  'In-app messaging is not configured. Do not send payment outside verified channels.');
+              _open(AppPage.buyerSellerMessaging);
             })),
             const SizedBox(width: 10),
             Expanded(
               child: _button('Arrange a visit', () {
-                _toast(
-                    'Visit scheduling is not available yet. Contact the seller directly.');
+                _open(AppPage.scheduleVisit);
               }, primary: false),
             ),
           ],
@@ -4624,6 +5158,10 @@ class _VaultPageViewState extends State<VaultPageView> {
   }
 
   Widget _chat() {
+    if (widget.page == AppPage.buyerSellerMessaging ||
+        widget.page == AppPage.chat) {
+      return _buyerSellerChat();
+    }
     final listing = _store.listings[PetVaultApp.selectedListingId];
     return _scroll(
       <Widget>[
@@ -4662,6 +5200,161 @@ class _VaultPageViewState extends State<VaultPageView> {
           ),
           color: _paleTeal,
         ),
+      ],
+    );
+  }
+
+  Widget _buyerSellerChat() {
+    final listing = _store.listings[PetVaultApp.selectedListingId];
+    final isOwner = _api.activeRole == 'owner';
+    Map<String, dynamic>? selectedConversation;
+    for (final conversation in _remoteConversations) {
+      if (conversation['id'] == _selectedConversationId) {
+        selectedConversation = conversation;
+        break;
+      }
+    }
+    return _scroll(
+      <Widget>[
+        _title('Marketplace messages',
+            subtitle: 'Keep pet-related conversations in the app.'),
+        const SizedBox(height: 12),
+        if (!_api.isAuthenticated)
+          _card(const Text('Sign in to view or send marketplace messages.')),
+        if (_api.isAuthenticated && _conversationsLoading)
+          const Center(child: CircularProgressIndicator(color: _teal)),
+        if (_api.isAuthenticated && !_conversationsLoading) ...<Widget>[
+          _section('Your conversations'),
+          if (_remoteConversations.isEmpty)
+            _card(const Text('No marketplace conversations yet.'))
+          else
+            for (final conversation in _remoteConversations) ...<Widget>[
+              _card(
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    conversation['title'] as String? ?? 'Pet listing',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  subtitle: Text(
+                    conversation['lastMessage'] as String? ??
+                        'Open conversation',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () {
+                    final id = conversation['id'];
+                    if (id is String) _loadRemoteMessages(id);
+                  },
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+        ],
+        if (_api.isAuthenticated &&
+            isOwner &&
+            selectedConversation == null &&
+            listing == null)
+          _card(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                const Text('Select a listing before starting a conversation.'),
+                const SizedBox(height: 10),
+                _button(
+                  'Browse marketplace',
+                  () => _open(AppPage.marketplace),
+                  primary: false,
+                ),
+              ],
+            ),
+          ),
+        if (_api.isAuthenticated &&
+            isOwner &&
+            selectedConversation == null &&
+            listing != null)
+          _card(
+            Text(
+              'Start a conversation about ${listing.title}. Avoid sharing payment details or verification codes.',
+              style: const TextStyle(color: _muted, height: 1.4),
+            ),
+          ),
+        if (_api.isAuthenticated && selectedConversation != null) ...<Widget>[
+          _card(
+            Row(
+              children: <Widget>[
+                const Icon(Icons.pets_outlined, color: _teal),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Text(
+                    selectedConversation['title'] as String? ?? 'Pet listing',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Refresh messages',
+                  onPressed: () =>
+                      _loadRemoteMessages(_selectedConversationId!),
+                  icon: const Icon(Icons.refresh_rounded),
+                ),
+              ],
+            ),
+          ),
+          if (_messagesLoading)
+            const Center(child: CircularProgressIndicator(color: _teal)),
+          if (!_messagesLoading && _remoteMessages.isEmpty)
+            _card(const Text('No messages in this conversation yet.')),
+          for (final message in _remoteMessages) ...<Widget>[
+            Align(
+              alignment: message['senderId'] == _store.currentUserId
+                  ? Alignment.centerRight
+                  : Alignment.centerLeft,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 420),
+                child: _card(
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        message['senderId'] == _store.currentUserId
+                            ? 'You'
+                            : 'Other participant',
+                        style: const TextStyle(
+                          color: _muted,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(message['body'] as String? ?? ''),
+                    ],
+                  ),
+                  color: message['senderId'] == _store.currentUserId
+                      ? _paleTeal
+                      : Colors.white,
+                ),
+              ),
+            ),
+          ],
+        ],
+        if (_api.isAuthenticated &&
+            (selectedConversation != null ||
+                (isOwner && listing != null))) ...<Widget>[
+          const SizedBox(height: 8),
+          _field(
+            'Message',
+            hint: 'Write a clear, respectful message',
+            controller: _messageController,
+            maxLines: 3,
+          ),
+          const SizedBox(height: 10),
+          _button(
+            _messageSubmitting ? 'Sending...' : 'Send message',
+            _messageSubmitting ? null : _sendMarketplaceMessage,
+            isLoading: _messageSubmitting,
+          ),
+        ],
       ],
     );
   }
@@ -4896,7 +5589,7 @@ class _VaultPageViewState extends State<VaultPageView> {
             const SizedBox(width: 9),
             Expanded(
                 child: _metricCard(
-                    'Messages', 'Not tracked', 'Messaging unavailable')),
+                    'Messages', 'Not tracked', 'Analytics unavailable')),
           ],
         ),
         const SizedBox(height: 12),
@@ -4920,7 +5613,7 @@ class _VaultPageViewState extends State<VaultPageView> {
         _section('Recent inquiries'),
         const SizedBox(height: 8),
         _card(const Text(
-          'Inquiry analytics and message delivery are not connected in this local prototype.',
+          'Inquiry analytics and real-time notifications are not configured. Messages are available in Conversations.',
           style: TextStyle(color: _muted),
         )),
         const SizedBox(height: 12),
@@ -5866,10 +6559,8 @@ class _VaultPageViewState extends State<VaultPageView> {
           _button('Mark delivered',
               () => _updateRemoteOrderStatus(order.id, 'Delivered')),
         const SizedBox(height: 8),
-        _button(
-            'Buyer messaging unavailable',
-            () => _toast(
-                'Buyer messaging is not connected to a messaging service.'),
+        _button('Order messaging unavailable',
+            () => _toast('Messaging is not available for product orders.'),
             primary: false),
       ],
     );
@@ -6164,70 +6855,167 @@ class _VaultPageViewState extends State<VaultPageView> {
   }
 
   Widget _adminDashboard() {
-    final riskFlagCount = _remoteModerationListings.where((listing) {
-      final score = num.tryParse(listing['riskScore']?.toString() ?? '') ?? 0;
-      final reportCount =
-          num.tryParse(listing['openReportCount']?.toString() ?? '') ?? 0;
-      return score >= 35 || reportCount > 0;
-    }).length;
+    String count(String key) => _adminStats[key]?.toString() ?? '—';
     return _scroll(
       <Widget>[
-        _title(
-          'Trust & safety',
-          subtitle:
-              'Admin dashboard · ${DateTime.now().toLocal().toString().split(' ').first}',
+        _title('Administrator dashboard',
+            subtitle: 'Live counts from the PetVault database.'),
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerRight,
+          child: IconButton(
+            tooltip: 'Refresh dashboard',
+            onPressed: _adminLoading ? null : _loadAdminData,
+            icon: const Icon(Icons.refresh_rounded, color: _teal),
+          ),
         ),
+        if (_adminLoading)
+          const Center(child: CircularProgressIndicator(color: _teal)),
+        if (_adminLoadError != null)
+          _card(
+            Text('Dashboard data could not be loaded: $_adminLoadError'),
+            color: const Color(0xFFFFE6E0),
+          ),
         const SizedBox(height: 14),
         Row(
           children: <Widget>[
             Expanded(
-                child: _metricCard(
-                    'KYC queue', '${_remoteKyc.length}', 'Awaiting review')),
+                child: _metricCard('Users', count('totalUsers'),
+                    '${count('verifiedUsers')} verified')),
             const SizedBox(width: 9),
             Expanded(
-                child: _metricCard('Risk flags', '$riskFlagCount', 'Listings')),
+                child: _metricCard('Unverified', count('unverifiedUsers'),
+                    '${count('suspendedUsers')} suspended')),
           ],
         ),
         const SizedBox(height: 10),
         Row(
           children: <Widget>[
             Expanded(
-                child: _metricCard('Published listings',
-                    '${_store.activeListings.length}', 'Current catalog')),
+                child: _metricCard(
+                    'Sellers', count('sellers'), 'Approved supply accounts')),
             const SizedBox(width: 9),
             Expanded(
                 child: _metricCard(
-                    'Open moderation',
-                    '${_remoteModerationListings.length}',
-                    'Listings and reports')),
+                    'Sitters', count('sitters'), 'Registered providers')),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: <Widget>[
+            Expanded(
+                child: _metricCard('Veterinarians', count('veterinarians'),
+                    'Registered providers')),
+            const SizedBox(width: 9),
+            Expanded(
+                child: _metricCard(
+                    'Vendors', count('vendors'), 'Registered providers')),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: <Widget>[
+            Expanded(
+                child: _metricCard(
+                    'Pending KYC', count('pendingKyc'), 'Needs human review')),
+            const SizedBox(width: 9),
+            Expanded(
+                child: _metricCard(
+                    'Open reports', count('openReports'), 'Listing reports')),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: <Widget>[
+            Expanded(
+                child: _metricCard('Listings', count('totalListings'),
+                    '${count('approvedListings')} approved')),
+            const SizedBox(width: 9),
+            Expanded(
+                child: _metricCard('Pending listings', count('pendingListings'),
+                    'Awaiting moderation')),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: <Widget>[
+            Expanded(
+                child: _metricCard('Bookings', count('totalBookings'),
+                    '${count('openBookings')} active/requested')),
+            const SizedBox(width: 9),
+            Expanded(
+                child: _metricCard('Appointments', count('totalAppointments'),
+                    'Veterinary schedule')),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: <Widget>[
+            Expanded(
+                child: _metricCard('Orders', count('totalOrders'),
+                    '${count('attentionOrders')} payment attention')),
+            const SizedBox(width: 9),
+            Expanded(
+                child: _metricCard('Disputes', count('openDisputes'),
+                    '${count('resolvedDisputes')} resolved')),
           ],
         ),
         const SizedBox(height: 15),
-        _section('Needs attention'),
+        _section('Administrative workspaces'),
         const SizedBox(height: 8),
         _actionRow(
-            Icons.verified_user_outlined,
-            'Identity review queue',
-            '${_remoteKyc.length} submissions waiting',
-            'Open →',
-            () => _open(AppPage.kycQueue)),
+          Icons.people_alt_outlined,
+          'User management',
+          'Search accounts, roles, verification and status',
+          'Open →',
+          () => _open(AppPage.adminUsers),
+        ),
         const SizedBox(height: 9),
         _actionRow(
-            Icons.warning_amber_rounded,
-            'Listing risk signals',
-            '$riskFlagCount listing(s) flagged for human review',
-            'Review →',
-            () => _open(AppPage.riskQueue)),
+          Icons.verified_user_outlined,
+          'KYC & verification',
+          '${count('pendingKyc')} submissions need review',
+          'Open →',
+          () => _open(AppPage.kycQueue),
+        ),
         const SizedBox(height: 9),
         _actionRow(
-            Icons.admin_panel_settings_outlined,
-            'Admin role & access',
-            'Review administrator permissions and decision scope',
-            'View →',
-            () => _open(AppPage.adminAccess)),
+          Icons.pets_outlined,
+          'Pet listings',
+          'Search all listings and moderate pending submissions',
+          'Open →',
+          () => _open(AppPage.adminListings),
+        ),
+        const SizedBox(height: 9),
+        _actionRow(
+          Icons.calendar_month_outlined,
+          'Bookings & appointments',
+          'View scheduling status without private health notes',
+          'Open →',
+          () => _open(AppPage.adminBookings),
+        ),
+        const SizedBox(height: 9),
+        _actionRow(
+          Icons.receipt_long_outlined,
+          'Marketplace orders',
+          'Monitor persisted order and payment status',
+          'Open →',
+          () => _open(AppPage.adminOrders),
+        ),
         const SizedBox(height: 14),
-        _button('Open audit trail', () => _open(AppPage.auditTrail),
-            primary: false),
+        Row(
+          children: <Widget>[
+            Expanded(
+              child: _button('Audit logs', () => _open(AppPage.auditTrail),
+                  primary: false),
+            ),
+            const SizedBox(width: 9),
+            Expanded(
+              child: _button('Admin access', () => _open(AppPage.adminAccess),
+                  primary: false),
+            ),
+          ],
+        ),
       ],
     );
   }
@@ -6238,7 +7026,7 @@ class _VaultPageViewState extends State<VaultPageView> {
         _title(
           'Admin role & access',
           subtitle:
-              'Review full case details and make decisions after human screening.',
+              'Review supported records within documented privacy boundaries.',
         ),
         const SizedBox(height: 12),
         _card(
@@ -6263,7 +7051,7 @@ class _VaultPageViewState extends State<VaultPageView> {
                     ),
                     const SizedBox(height: 3),
                     const Text(
-                      'Platform administrator · full review access',
+                      'Platform administrator · backend-authorized access',
                       style: TextStyle(color: _muted, fontSize: 12),
                     ),
                   ],
@@ -6281,8 +7069,8 @@ class _VaultPageViewState extends State<VaultPageView> {
             children: <Widget>[
               _accessRight(
                 Icons.manage_search_outlined,
-                'View screening details',
-                'Review applicant identity references, role requests, listing details, disclosures, reports, and risk signals in the admin queues.',
+                'Review supported records',
+                'Open user, KYC, listing, booking, appointment, order, support, and moderation workspaces.',
               ),
               const Divider(height: 22, color: _line),
               _accessRight(
@@ -6300,7 +7088,7 @@ class _VaultPageViewState extends State<VaultPageView> {
               _accessRight(
                 Icons.history_rounded,
                 'Review the audit trail',
-                'Administrative decisions are recorded and the requester is notified.',
+                'Persisted administrative actions and denied API access are recorded.',
               ),
             ],
           ),
@@ -6316,11 +7104,27 @@ class _VaultPageViewState extends State<VaultPageView> {
         _section('Open a review queue'),
         const SizedBox(height: 8),
         _actionRow(
+          Icons.people_alt_outlined,
+          'User management',
+          'Review account roles and status',
+          'Open →',
+          () => _open(AppPage.adminUsers),
+        ),
+        const SizedBox(height: 8),
+        _actionRow(
           Icons.verified_user_outlined,
           'Identity verification',
           '${_remoteKyc.length} submission(s) waiting',
           'Open →',
           () => _open(AppPage.kycQueue),
+        ),
+        const SizedBox(height: 8),
+        _actionRow(
+          Icons.receipt_long_outlined,
+          'Orders & disputes',
+          'Payment status is visible; no real refunds are available',
+          'Open →',
+          () => _open(AppPage.adminOrders),
         ),
         const SizedBox(height: 8),
         _actionRow(
@@ -6364,6 +7168,791 @@ class _VaultPageViewState extends State<VaultPageView> {
         ),
       ],
     );
+  }
+
+  Widget _adminUsers() {
+    return _adminRecordsPage(
+      title: 'User management',
+      subtitle:
+          'Search and filter account details; sensitive health data is excluded.',
+      emptyMessage: 'No accounts match these filters.',
+      filters: Column(
+        children: <Widget>[
+          _adminDropdown(
+            'Role',
+            _adminRoleFilter,
+            const <(String, String)>[
+              ('all', 'All roles'),
+              ('owner', 'Owner'),
+              ('seller', 'Seller'),
+              ('sitter', 'Sitter'),
+              ('veterinarian', 'Veterinarian'),
+              ('vendor', 'Vendor'),
+              ('admin', 'Admin'),
+            ],
+            (value) => _changeAdminFilter(role: value),
+          ),
+          const SizedBox(height: 10),
+          _adminDropdown(
+            'Account status',
+            _adminStatusFilter,
+            const <(String, String)>[
+              ('all', 'All statuses'),
+              ('active', 'Active'),
+              ('suspended', 'Suspended'),
+              ('deleted', 'Deleted / anonymized'),
+            ],
+            (value) => _changeAdminFilter(status: value),
+          ),
+          const SizedBox(height: 10),
+          _adminDropdown(
+            'Email verification',
+            _adminVerifiedFilter,
+            const <(String, String)>[
+              ('all', 'All verification states'),
+              ('verified', 'Verified'),
+              ('unverified', 'Unverified'),
+            ],
+            (value) => _changeAdminFilter(verified: value),
+          ),
+        ],
+      ),
+      itemBuilder: _adminUserCard,
+    );
+  }
+
+  Widget _adminListings() {
+    return _adminRecordsPage(
+      title: 'Pet listings',
+      subtitle: 'Search all listings and review pending submissions.',
+      emptyMessage: 'No listings match these filters.',
+      filters: _adminDropdown(
+        'Listing status',
+        _adminStatusFilter,
+        const <(String, String)>[
+          ('all', 'All statuses'),
+          ('pending_review', 'Pending review'),
+          ('active', 'Approved / active'),
+          ('rejected', 'Rejected'),
+          ('sold', 'Sold'),
+        ],
+        (value) => _changeAdminFilter(status: value),
+      ),
+      itemBuilder: _adminListingCard,
+    );
+  }
+
+  Widget _adminBookings() {
+    return _adminRecordsPage(
+      title: 'Sitting & boarding bookings',
+      subtitle:
+          'Operational scheduling view; emergency contacts and private instructions are not shown.',
+      emptyMessage: 'No bookings match these filters.',
+      filters: _adminDropdown(
+        'Booking status',
+        _adminStatusFilter,
+        const <(String, String)>[
+          ('all', 'All statuses'),
+          ('requested', 'Requested'),
+          ('confirmed', 'Confirmed'),
+          ('declined', 'Declined'),
+          ('cancelled', 'Cancelled'),
+          ('complete', 'Complete'),
+        ],
+        (value) => _changeAdminFilter(status: value),
+      ),
+      itemBuilder: _adminBookingCard,
+    );
+  }
+
+  Widget _adminAppointments() {
+    return _adminRecordsPage(
+      title: 'Veterinary appointments',
+      subtitle:
+          'Scheduling and participant details only; consultation notes and health records are restricted.',
+      emptyMessage: 'No appointments match these filters.',
+      filters: _adminDropdown(
+        'Appointment status',
+        _adminStatusFilter,
+        const <(String, String)>[
+          ('all', 'All statuses'),
+          ('Confirmed', 'Confirmed'),
+          ('Complete', 'Complete'),
+          ('Cancelled', 'Cancelled'),
+        ],
+        (value) => _changeAdminFilter(status: value),
+      ),
+      itemBuilder: _adminAppointmentCard,
+    );
+  }
+
+  Widget _adminOrders() {
+    return _adminRecordsPage(
+      title: 'Marketplace orders',
+      subtitle:
+          'Persisted order and payment status. Payment references and card data are not displayed.',
+      emptyMessage: 'No orders match these filters.',
+      filters: _adminDropdown(
+        'Order / payment status',
+        _adminStatusFilter,
+        const <(String, String)>[
+          ('all', 'All statuses'),
+          ('Processing', 'Processing'),
+          ('Shipped', 'Shipped'),
+          ('Delivered', 'Delivered'),
+          ('Cancelled', 'Cancelled'),
+          ('payment:pending', 'Payment pending'),
+          ('payment:paid', 'Paid'),
+          ('payment:failed', 'Payment failed'),
+          ('payment:refund_pending', 'Refund pending'),
+          ('payment:refunded', 'Refunded'),
+        ],
+        (value) => _changeAdminFilter(status: value),
+      ),
+      itemBuilder: _adminOrderCard,
+    );
+  }
+
+  Widget _adminReviews() {
+    return _adminRecordsPage(
+      title: 'Reviews & ratings',
+      subtitle:
+          'Reviews are read-only: the current schema has no moderation state or supported removal action.',
+      emptyMessage: 'No reviews match this search.',
+      filters: _adminDropdown(
+        'Review subject',
+        _adminStatusFilter,
+        const <(String, String)>[
+          ('all', 'All subjects'),
+          ('product', 'Products'),
+          ('sitter', 'Sitters'),
+          ('veterinarian', 'Veterinarians'),
+        ],
+        (value) => _changeAdminFilter(status: value),
+      ),
+      itemBuilder: _adminReviewCard,
+    );
+  }
+
+  Widget _adminNotifications() {
+    return _adminRecordsPage(
+      title: 'Notification activity',
+      subtitle:
+          'Stored in-app notifications only; external delivery status is not available.',
+      emptyMessage: 'No notifications match these filters.',
+      filters: _adminDropdown(
+        'Read status',
+        _adminStatusFilter,
+        const <(String, String)>[
+          ('all', 'All records'),
+          ('unread', 'Unread'),
+          ('read', 'Read'),
+        ],
+        (value) => _changeAdminFilter(status: value),
+      ),
+      itemBuilder: _adminNotificationCard,
+    );
+  }
+
+  Widget _adminSupport() {
+    return _adminRecordsPage(
+      title: 'Support requests',
+      subtitle: 'Review and update user-submitted support cases.',
+      emptyMessage: 'No support requests match these filters.',
+      filters: _adminDropdown(
+        'Request status',
+        _adminStatusFilter,
+        const <(String, String)>[
+          ('all', 'All statuses'),
+          ('open', 'Open'),
+          ('in_progress', 'In progress'),
+          ('resolved', 'Resolved'),
+        ],
+        (value) => _changeAdminFilter(status: value),
+      ),
+      itemBuilder: _adminSupportCard,
+    );
+  }
+
+  Widget _adminRecordsPage({
+    required String title,
+    required String subtitle,
+    required String emptyMessage,
+    required Widget Function(Map<String, dynamic>) itemBuilder,
+    Widget? filters,
+  }) {
+    return _scroll(
+      <Widget>[
+        _title(title, subtitle: subtitle),
+        const SizedBox(height: 12),
+        _field(
+          'Search',
+          hint: 'Search name, ID, email, or record details',
+          controller: _queryController,
+        ),
+        const SizedBox(height: 8),
+        _button(
+          'Search records',
+          () {
+            setState(() => _adminPage = 1);
+            _loadAdminData();
+          },
+          icon: Icons.search_rounded,
+        ),
+        if (filters != null) ...<Widget>[
+          const SizedBox(height: 12),
+          filters,
+        ],
+        const SizedBox(height: 12),
+        if (_adminLoadError != null)
+          _card(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text('Could not load records: $_adminLoadError'),
+                const SizedBox(height: 8),
+                _button(
+                  'Retry',
+                  _adminLoading ? null : _loadAdminData,
+                  primary: false,
+                ),
+              ],
+            ),
+            color: const Color(0xFFFFE6E0),
+          ),
+        if (_adminLoading)
+          const Center(child: CircularProgressIndicator(color: _teal))
+        else if (_adminRecords.isEmpty)
+          _card(Text(emptyMessage))
+        else ...<Widget>[
+          _section('$_adminTotal record(s)'),
+          const SizedBox(height: 8),
+          for (final record in _adminRecords) ...<Widget>[
+            itemBuilder(record),
+            const SizedBox(height: 9),
+          ],
+          _adminPager(),
+        ],
+      ],
+    );
+  }
+
+  Widget _adminDropdown(
+    String label,
+    String value,
+    List<(String, String)> options,
+    ValueChanged<String?> onChanged,
+  ) {
+    return DropdownButtonFormField<String>(
+      initialValue: value,
+      decoration: InputDecoration(
+        labelText: label,
+        filled: true,
+        fillColor: Colors.white,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: _line),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: _line),
+        ),
+      ),
+      items: options
+          .map((option) => DropdownMenuItem<String>(
+                value: option.$1,
+                child: Text(option.$2, overflow: TextOverflow.ellipsis),
+              ))
+          .toList(growable: false),
+      onChanged: onChanged,
+    );
+  }
+
+  void _changeAdminFilter({
+    String? status,
+    String? role,
+    String? verified,
+  }) {
+    setState(() {
+      if (status != null) _adminStatusFilter = status;
+      if (role != null) _adminRoleFilter = role;
+      if (verified != null) _adminVerifiedFilter = verified;
+      _adminPage = 1;
+    });
+    _loadAdminData();
+  }
+
+  Widget _adminPager() {
+    final pages = (_adminTotal + 24) ~/ 25;
+    return Row(
+      children: <Widget>[
+        Expanded(
+          child: Text(
+            'Page $_adminPage of ${pages == 0 ? 1 : pages}',
+            style: const TextStyle(color: _muted, fontSize: 12),
+          ),
+        ),
+        IconButton(
+          tooltip: 'Previous page',
+          onPressed: _adminLoading || _adminPage <= 1
+              ? null
+              : () {
+                  setState(() => _adminPage -= 1);
+                  _loadAdminData();
+                },
+          icon: const Icon(Icons.chevron_left_rounded),
+        ),
+        IconButton(
+          tooltip: 'Next page',
+          onPressed: _adminLoading || _adminPage >= pages
+              ? null
+              : () {
+                  setState(() => _adminPage += 1);
+                  _loadAdminData();
+                },
+          icon: const Icon(Icons.chevron_right_rounded),
+        ),
+      ],
+    );
+  }
+
+  Widget _adminUserCard(Map<String, dynamic> user) {
+    final roles = user['roles'] is List
+        ? (user['roles'] as List).whereType<String>().join(' · ')
+        : 'No assigned role';
+    final status = user['status'] as String? ?? 'unknown';
+    final id = user['id'];
+    return _card(
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  user['displayName'] as String? ?? 'Unknown user',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+              _pill(status.toUpperCase()),
+            ],
+          ),
+          const SizedBox(height: 5),
+          Text(user['email'] as String? ?? ''),
+          Text('Roles: $roles',
+              style: const TextStyle(color: _muted, fontSize: 12)),
+          Text(
+            'KYC: ${_formatAdminKycStatuses(user['kycStatuses'])}',
+            style: const TextStyle(color: _muted, fontSize: 12),
+          ),
+          Text('Phone: ${user['phone'] ?? 'Not provided'}',
+              style: const TextStyle(color: _muted, fontSize: 12)),
+          Text(
+            'Email ${user['verified'] == true ? 'verified' : 'unverified'} · Created ${user['createdAt'] ?? ''}',
+            style: const TextStyle(color: _muted, fontSize: 11),
+          ),
+          if (status != 'deleted' && id is String) ...<Widget>[
+            const SizedBox(height: 10),
+            _button(
+              status == 'suspended' ? 'Reactivate account' : 'Suspend account',
+              () => _changeUserStatus(
+                user,
+                status == 'suspended' ? 'active' : 'suspended',
+              ),
+              primary: status == 'suspended',
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String _formatAdminKycStatuses(dynamic statuses) {
+    if (statuses is! Map || statuses.isEmpty) return 'None on file';
+    return statuses.entries
+        .map((entry) => '${entry.key}: ${entry.value}')
+        .join(' · ');
+  }
+
+  Future<String?> _requestAdminReason({
+    required String title,
+    required String detail,
+    String fieldLabel = 'Reason',
+  }) async {
+    final controller = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(detail),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              maxLines: 3,
+              decoration: InputDecoration(labelText: fieldLabel),
+            ),
+          ],
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, controller.text.trim()),
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    return result;
+  }
+
+  Future<void> _changeUserStatus(
+    Map<String, dynamic> user,
+    String status,
+  ) async {
+    final id = user['id'];
+    if (id is! String) return;
+    final reason = await _requestAdminReason(
+      title: status == 'suspended' ? 'Suspend account' : 'Reactivate account',
+      detail:
+          'This changes sign-in access and revokes existing sessions. Provide a reason of at least five characters.',
+    );
+    if (reason == null) return;
+    if (reason.length < 5) {
+      _toast('Enter a reason of at least five characters.');
+      return;
+    }
+    try {
+      await _api.updateAdminUserStatus(
+        userId: id,
+        status: status,
+        reason: reason,
+      );
+      await _loadAdminData();
+      if (mounted) _toast('Account status updated.');
+    } on PetVaultApiException catch (error) {
+      _showApiError(error);
+    } on FormatException catch (error) {
+      _showApiError(error);
+    }
+  }
+
+  Widget _adminListingCard(Map<String, dynamic> listing) {
+    final id = listing['id'];
+    final status = listing['status'] as String? ?? 'unknown';
+    return _card(
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  listing['title'] as String? ?? 'Untitled listing',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+              _pill(status.replaceAll('_', ' ').toUpperCase()),
+            ],
+          ),
+          const SizedBox(height: 5),
+          Text(
+            '${listing['species'] ?? ''} · ${listing['breed'] ?? ''} · ${listing['city'] ?? ''}',
+            style: const TextStyle(color: _muted, fontSize: 12),
+          ),
+          Text(
+            'Seller: ${listing['sellerName'] ?? ''} · ${listing['sellerEmail'] ?? ''}',
+            style: const TextStyle(color: _muted, fontSize: 12),
+          ),
+          Text(
+              'Price: PKR ${listing['price'] ?? ''} · Age: ${listing['age'] ?? ''}'),
+          if ((listing['healthNotes'] as String? ?? '').isNotEmpty) ...<Widget>[
+            const SizedBox(height: 6),
+            Text('Listing disclosure: ${listing['healthNotes']}'),
+          ],
+          if ((listing['moderationNote'] as String? ?? '').isNotEmpty)
+            Text('Review note: ${listing['moderationNote']}',
+                style: const TextStyle(color: _muted, fontSize: 12)),
+          if (status == 'pending_review' && id is String) ...<Widget>[
+            const SizedBox(height: 10),
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: _button(
+                    'Approve',
+                    () => _moderateAdminListing(listing, 'active'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _button(
+                    'Reject',
+                    () => _moderateAdminListing(listing, 'rejected'),
+                    primary: false,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _moderateAdminListing(
+    Map<String, dynamic> listing,
+    String status,
+  ) async {
+    final id = listing['id'];
+    if (id is! String) return;
+    var reviewNote = '';
+    if (status == 'rejected') {
+      final reason = await _requestAdminReason(
+        title: 'Reject listing',
+        detail: 'A review reason is saved to the listing and audit history.',
+        fieldLabel: 'Rejection reason',
+      );
+      if (reason == null) return;
+      if (reason.length < 5) {
+        _toast('Enter a rejection reason of at least five characters.');
+        return;
+      }
+      reviewNote = reason;
+    }
+    try {
+      await _api.moderateListing(
+        id: id,
+        status: status,
+        reviewNote: reviewNote,
+      );
+      await Future.wait(<Future<void>>[
+        _loadAdminData(),
+        _loadRemoteModerationListings(),
+      ]);
+      if (mounted) {
+        _toast(status == 'active'
+            ? 'Listing approved and published.'
+            : 'Listing rejected and the seller was notified.');
+      }
+    } on PetVaultApiException catch (error) {
+      _showApiError(error);
+    } on FormatException catch (error) {
+      _showApiError(error);
+    }
+  }
+
+  Widget _adminBookingCard(Map<String, dynamic> booking) {
+    return _card(
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            booking['petName'] as String? ?? 'Pet booking',
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          Text(
+            '${booking['ownerName'] ?? 'Owner'} · ${booking['sitterName'] ?? 'Sitter'}',
+            style: const TextStyle(color: _muted, fontSize: 12),
+          ),
+          Text('${booking['arrangement'] ?? ''} · ${booking['status'] ?? ''}'),
+          Text(
+            '${booking['startsAt'] ?? ''} – ${booking['endsAt'] ?? ''}',
+            style: const TextStyle(color: _muted, fontSize: 11),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _adminAppointmentCard(Map<String, dynamic> appointment) {
+    return _card(
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            appointment['appointmentType'] as String? ??
+                'Veterinary appointment',
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          Text(
+            '${appointment['petName'] ?? 'Pet'} · ${appointment['ownerName'] ?? 'Owner'}',
+            style: const TextStyle(color: _muted, fontSize: 12),
+          ),
+          Text('Veterinarian: ${appointment['veterinarianName'] ?? ''}'),
+          Text(
+            '${appointment['status'] ?? ''} · ${appointment['startsAt'] ?? ''} – ${appointment['endsAt'] ?? ''}',
+            style: const TextStyle(color: _muted, fontSize: 11),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _adminOrderCard(Map<String, dynamic> order) {
+    final items = order['items'];
+    return _card(
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  'Order ${order['id'] ?? ''}',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+              _pill((order['status'] as String? ?? '').toUpperCase()),
+            ],
+          ),
+          Text(
+            '${order['buyerName'] ?? 'Buyer'} · ${order['buyerEmail'] ?? ''}',
+            style: const TextStyle(color: _muted, fontSize: 12),
+          ),
+          Text(
+            'Payment: ${order['paymentStatus'] ?? 'unknown'} · Total: PKR ${order['total'] ?? ''}',
+          ),
+          if (items is List)
+            for (final item in items)
+              if (item is Map<String, dynamic>)
+                Text(
+                  '${item['productName'] ?? 'Product'} · ${item['vendorName'] ?? 'Vendor'} · Qty ${item['quantity'] ?? ''} · ${item['vendorStatus'] ?? ''}',
+                  style: const TextStyle(color: _muted, fontSize: 11),
+                ),
+        ],
+      ),
+    );
+  }
+
+  Widget _adminReviewCard(Map<String, dynamic> review) {
+    return _card(
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  '${review['subjectType'] ?? ''} review',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+              _pill('${review['rating'] ?? ''} / 5'),
+            ],
+          ),
+          Text(
+            '${review['authorName'] ?? 'User'} · ${review['authorEmail'] ?? ''}',
+            style: const TextStyle(color: _muted, fontSize: 12),
+          ),
+          Text('Subject ID: ${review['subjectId'] ?? ''}',
+              style: const TextStyle(color: _muted, fontSize: 11)),
+          const SizedBox(height: 5),
+          Text(review['comment'] as String? ?? ''),
+        ],
+      ),
+    );
+  }
+
+  Widget _adminNotificationCard(Map<String, dynamic> notification) {
+    return _card(
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  notification['title'] as String? ?? 'Notification',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+              _pill(notification['readAt'] == null ? 'UNREAD' : 'READ'),
+            ],
+          ),
+          Text(
+            '${notification['recipientName'] ?? 'User'} · ${notification['recipientEmail'] ?? ''}',
+            style: const TextStyle(color: _muted, fontSize: 12),
+          ),
+          Text(
+            '${notification['createdAt'] ?? ''}',
+            style: const TextStyle(color: _muted, fontSize: 11),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _adminSupportCard(Map<String, dynamic> request) {
+    final status = request['status'] as String? ?? 'open';
+    return _card(
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  request['topic'] as String? ?? 'Support request',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+              _pill(status.replaceAll('_', ' ').toUpperCase()),
+            ],
+          ),
+          Text(
+            '${request['displayName'] ?? 'Deleted user'} · ${request['email'] ?? ''}',
+            style: const TextStyle(color: _muted, fontSize: 12),
+          ),
+          const SizedBox(height: 5),
+          Text(request['message'] as String? ?? ''),
+          if (status != 'resolved') ...<Widget>[
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: <Widget>[
+                OutlinedButton(
+                  onPressed: () => _updateSupportRequest(
+                    request,
+                    status == 'open' ? 'in_progress' : 'open',
+                  ),
+                  child: Text(status == 'open' ? 'Start review' : 'Reopen'),
+                ),
+                FilledButton(
+                  onPressed: () => _updateSupportRequest(request, 'resolved'),
+                  child: const Text('Resolve'),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _updateSupportRequest(
+    Map<String, dynamic> request,
+    String status,
+  ) async {
+    final id = request['id'];
+    if (id is! String) return;
+    try {
+      await _api.updateAdminSupportRequest(requestId: id, status: status);
+      await _loadAdminData();
+      if (mounted) _toast('Support request updated.');
+    } on PetVaultApiException catch (error) {
+      _showApiError(error);
+    } on FormatException catch (error) {
+      _showApiError(error);
+    }
   }
 
   Widget _kycQueue() {
@@ -6484,7 +8073,9 @@ class _VaultPageViewState extends State<VaultPageView> {
   }
 
   Widget _riskQueue() {
-    final reports = _store.reportsPendingReview;
+    final reports = _remoteListingReports
+        .where((report) => report['status'] == 'open')
+        .toList(growable: false);
     final remoteFlags = _remoteModerationListings.where((listing) {
       final score = num.tryParse(listing['riskScore']?.toString() ?? '') ?? 0;
       final reportCount =
@@ -6494,12 +8085,50 @@ class _VaultPageViewState extends State<VaultPageView> {
     return _scroll(
       <Widget>[
         _title('Trust & safety reports',
-            subtitle:
-                '${remoteFlags.length} risk flag(s) · ${reports.length} local report(s)'),
+            subtitle: '${remoteFlags.length} listing signal(s) · '
+                '${reports.length} open report(s)'),
         const SizedBox(height: 12),
-        if (_api.isAuthenticated && !_remoteModerationLoaded)
+        if (_api.isAuthenticated &&
+            (!_remoteModerationLoaded || _adminReportsLoading))
           const Center(child: CircularProgressIndicator(color: _teal)),
-        if (reports.isEmpty && remoteFlags.isEmpty)
+        if (_moderationLoadError != null)
+          _card(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text('Could not load listing signals: $_moderationLoadError'),
+                const SizedBox(height: 8),
+                _button(
+                  'Retry listing signals',
+                  _loadRemoteModerationListings,
+                  primary: false,
+                ),
+              ],
+            ),
+            color: const Color(0xFFFFE6E0),
+          ),
+        if (_adminReportsError != null)
+          _card(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text('Could not load listing reports: $_adminReportsError'),
+                const SizedBox(height: 8),
+                _button(
+                  'Retry reports',
+                  _adminReportsLoading ? null : _loadRemoteListingReports,
+                  primary: false,
+                ),
+              ],
+            ),
+            color: const Color(0xFFFFE6E0),
+          ),
+        if (reports.isEmpty &&
+            remoteFlags.isEmpty &&
+            _moderationLoadError == null &&
+            _adminReportsError == null &&
+            _remoteModerationLoaded &&
+            !_adminReportsLoading)
           _card(const Text(
               'No high-priority signals or user reports are awaiting review. Risk scores support human review and are not proof of fraud.'))
         else ...<Widget>[
@@ -6512,25 +8141,33 @@ class _VaultPageViewState extends State<VaultPageView> {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
-                  Text(
-                      _store.listings[report.listingId]?.title ??
-                          report.listingId,
+                  Text(report['listingTitle'] as String? ?? 'Reported listing',
                       style: const TextStyle(fontWeight: FontWeight.w700)),
                   const SizedBox(height: 4),
-                  Text(report.reason),
-                  Text('Submitted ${report.createdAt.toLocal()}',
+                  Text(report['reason'] as String? ?? ''),
+                  Text(
+                      'Reported by ${report['reporterName'] ?? 'User'} · '
+                      '${report['createdAt'] ?? ''}',
                       style: const TextStyle(color: _muted, fontSize: 11)),
                   const SizedBox(height: 8),
-                  _button('Mark reviewed', () {
-                    _showStoreResult(
-                      _store.resolveListingReport(report.id),
-                      successMessage: 'Report marked reviewed.',
-                    );
-                  }),
-                  const SizedBox(height: 7),
-                  _button('Open listing moderation',
-                      () => _open(AppPage.listingModeration),
-                      primary: false),
+                  Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: _button(
+                          'Mark reviewed',
+                          () => _updateListingReport(report, 'reviewed'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _button(
+                          'Dismiss',
+                          () => _updateListingReport(report, 'dismissed'),
+                          primary: false,
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -6539,6 +8176,23 @@ class _VaultPageViewState extends State<VaultPageView> {
         ],
       ],
     );
+  }
+
+  Future<void> _updateListingReport(
+    Map<String, dynamic> report,
+    String status,
+  ) async {
+    final id = report['id'];
+    if (id is! String) return;
+    try {
+      await _api.updateAdminListingReport(reportId: id, status: status);
+      await _loadRemoteListingReports();
+      if (mounted) _toast('Listing report $status.');
+    } on PetVaultApiException catch (error) {
+      _showApiError(error);
+    } on FormatException catch (error) {
+      _showApiError(error);
+    }
   }
 
   Widget _remoteModerationCard(Map<String, dynamic> listing) {
@@ -6753,70 +8407,138 @@ class _VaultPageViewState extends State<VaultPageView> {
   }
 
   Widget _disputes() {
-    final cases = _store.openDisputes.toList(growable: false);
-    return _scroll(
-      <Widget>[
-        _title('Disputes & cancellations',
-            subtitle: '${cases.length} open case(s)'),
-        const SizedBox(height: 13),
-        if (cases.isEmpty)
-          _card(const Text('No open disputes.'))
-        else
-          for (final transactionId in cases) ...<Widget>[
-            _card(
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(transactionId,
-                      style: const TextStyle(fontWeight: FontWeight.w700)),
-                  const SizedBox(height: 7),
-                  const Text(
-                      'Review the available transaction details before choosing a resolution.',
-                      style: TextStyle(color: _muted, fontSize: 12)),
-                  const SizedBox(height: 12),
-                  for (final decision in <String>[
-                    'Refund buyer',
-                    'Release payment',
-                    'Request more information',
-                  ])
-                    TextButton(
-                      onPressed: () => _showStoreResult(
-                        _store.resolveDispute(transactionId, decision),
-                        successMessage: 'Dispute resolved: $decision.',
-                      ),
-                      child: Text(decision),
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 9),
-          ],
-      ],
+    return _adminRecordsPage(
+      title: 'Disputes & cancellations',
+      subtitle:
+          'Persisted cases only. Decisions never initiate a payment or refund.',
+      emptyMessage: 'No disputes match these filters.',
+      filters: _adminDropdown(
+        'Case status',
+        _adminStatusFilter,
+        const <(String, String)>[
+          ('all', 'All statuses'),
+          ('open', 'Open'),
+          ('in_review', 'In review'),
+          ('resolved', 'Resolved'),
+          ('dismissed', 'Dismissed'),
+        ],
+        (value) => _changeAdminFilter(status: value),
+      ),
+      itemBuilder: _adminDisputeCard,
     );
   }
 
-  Widget _auditTrail() {
-    final entries = _store.auditTrail;
-    return _scroll(
-      <Widget>[
-        _title('Audit trail',
-            subtitle: 'A chronological record of trust and safety actions.'),
-        const SizedBox(height: 13),
-        _field('Search events', hint: 'User, listing, or action'),
-        const SizedBox(height: 12),
-        if (entries.isEmpty)
-          _card(const Text('No audit events recorded yet.'))
-        else
-          for (final entry in entries)
-            _timelineItem(
-              entry.action,
-              '${entry.actor} · ${entry.record} · ${entry.createdAt.toLocal()}',
+  Widget _adminDisputeCard(Map<String, dynamic> dispute) {
+    final status = dispute['status'] as String? ?? 'unknown';
+    return _card(
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  'Case ${dispute['id'] ?? ''}',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+              _pill(status.replaceAll('_', ' ').toUpperCase()),
+            ],
+          ),
+          Text(
+            '${dispute['targetType'] ?? ''} · ${dispute['targetId'] ?? ''}',
+            style: const TextStyle(color: _muted, fontSize: 12),
+          ),
+          Text(
+            'Reported by ${dispute['openerName'] ?? ''} · ${dispute['openerEmail'] ?? ''}',
+            style: const TextStyle(color: _muted, fontSize: 12),
+          ),
+          if (dispute['targetAmount'] != null)
+            Text('Recorded target amount: PKR ${dispute['targetAmount']}'),
+          if (dispute['targetStatus'] != null)
+            Text('Target status: ${dispute['targetStatus']}'),
+          const SizedBox(height: 6),
+          Text(dispute['reason'] as String? ?? ''),
+          if ((dispute['resolution'] as String? ?? '').isNotEmpty) ...<Widget>[
+            const SizedBox(height: 6),
+            Text('Resolution: ${dispute['resolution']}'),
+          ],
+          if (status == 'open' || status == 'in_review') ...<Widget>[
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: <Widget>[
+                OutlinedButton(
+                  onPressed: status == 'in_review'
+                      ? null
+                      : () => _updateAdminDispute(dispute, 'in_review'),
+                  child: const Text('Move to review'),
+                ),
+                FilledButton(
+                  onPressed: () => _updateAdminDispute(dispute, 'resolved'),
+                  child: const Text('Resolve case'),
+                ),
+                TextButton(
+                  onPressed: () => _updateAdminDispute(dispute, 'dismissed'),
+                  child: const Text('Dismiss'),
+                ),
+              ],
             ),
-        const SizedBox(height: 10),
-        _button('Export audit records',
-            () => _toast('Audit export prepared securely.'),
-            primary: false),
-      ],
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _updateAdminDispute(
+    Map<String, dynamic> dispute,
+    String status,
+  ) async {
+    final id = dispute['id'];
+    if (id is! String) return;
+    var resolution = '';
+    if (status != 'in_review') {
+      final reason = await _requestAdminReason(
+        title: status == 'resolved' ? 'Resolve dispute' : 'Dismiss dispute',
+        detail:
+            'Record the decision. This does not trigger a refund or payment action.',
+        fieldLabel: 'Decision notes',
+      );
+      if (reason == null) return;
+      if (reason.length < 5) {
+        _toast('Enter decision notes of at least five characters.');
+        return;
+      }
+      resolution = reason;
+    }
+    try {
+      await _api.updateAdminDispute(
+        disputeId: id,
+        status: status,
+        resolution: resolution,
+      );
+      await _loadAdminData();
+      if (mounted) _toast('Dispute status updated.');
+    } on PetVaultApiException catch (error) {
+      _showApiError(error);
+    } on FormatException catch (error) {
+      _showApiError(error);
+    }
+  }
+
+  Widget _auditTrail() {
+    return _adminRecordsPage(
+      title: 'Audit logs',
+      subtitle:
+          'Append-only database events; metadata and health-record content are excluded.',
+      emptyMessage: 'No audit events match this search.',
+      itemBuilder: (event) => _timelineItem(
+        event['action'] as String? ?? 'Administrative event',
+        '${event['actorName'] ?? event['actorId'] ?? 'System'} · '
+        '${event['resourceType'] ?? ''} · ${event['resourceId'] ?? ''} · '
+        '${event['createdAt'] ?? ''}',
+      ),
     );
   }
 
@@ -6974,12 +8696,79 @@ class _VaultPageViewState extends State<VaultPageView> {
             () => _toast(
                 'Local data export is not implemented; no file was created.')),
         _settingsRow(
-            Icons.delete_outline,
-            'Account deletion unavailable',
-            () => _toast(
-                'Account deletion is not implemented by the backend. Contact support for account assistance.')),
+            Icons.delete_outline, 'Delete account', _confirmAccountDeletion),
       ],
     );
+  }
+
+  Future<void> _confirmAccountDeletion() async {
+    if (!_api.isAuthenticated) {
+      _toast('Sign in before requesting account deletion.');
+      return;
+    }
+    try {
+      final eligibility = await _api.fetchAccountDeletionEligibility();
+      if (!mounted) return;
+      final rawCommitments = eligibility['commitments'];
+      final commitments = rawCommitments is List
+          ? rawCommitments
+              .whereType<Map>()
+              .map((item) =>
+                  '${item['type'] ?? 'commitment'} · ${item['status'] ?? 'open'}')
+              .join('\n')
+          : '';
+      if (eligibility['canDelete'] != true) {
+        await showDialog<void>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Complete active commitments first'),
+            content: SingleChildScrollView(
+              child: Text(
+                commitments.isEmpty
+                    ? 'Resolve active bookings, orders, visits, and disputes before deleting your account.'
+                    : 'Resolve these items before deleting your account:\n\n$commitments',
+              ),
+            ),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close'),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Delete your account?'),
+          content: const Text(
+            'Your personal details and pet health records will be removed or anonymized. Transaction and audit records required for dispute handling will be retained. This cannot be undone.',
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Delete account'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+      await _api.deleteAccount();
+      _store.signOut();
+      if (!mounted) return;
+      _switchTab(AppPage.authentication);
+      _toast('Your account was deleted and your session was revoked.');
+    } on PetVaultApiException catch (error) {
+      if (mounted) _showApiError(error);
+    } on FormatException catch (error) {
+      if (mounted) _showApiError(error);
+    }
   }
 
   Widget _notifications() {
