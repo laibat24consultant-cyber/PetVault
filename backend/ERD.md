@@ -292,3 +292,4 @@ erDiagram
 - Authentication sessions are represented by signed JWTs, not a database
   session table. Uploaded document/file bytes and payment-provider events are
   not persisted in this schema.
+>>>>>>> 24ecb6467fbec18fd7e609611217a71dd686272b

@@ -377,8 +377,11 @@ class PetVaultStore extends ChangeNotifier {
   String currentUserId = '';
   PetVaultRole activeRole = PetVaultRole.owner;
   String? lastOtp;
+  DateTime? lastOtpIssuedAt;
   String? lastResetCode;
+  DateTime? lastResetCodeIssuedAt;
   String? lastError;
+  final Map<String, String> _phoneToAccount = <String, String>{};
   int paymentCommissionPercent = 5;
   bool requireExplicitConsent = true;
   bool allowSitterFullRecords = false;
@@ -476,6 +479,10 @@ class PetVaultStore extends ChangeNotifier {
       phone: user['phone'] is String ? user['phone'] as String : '',
       verified: user['verified'] == true,
     );
+    final phone = user['phone'] is String ? user['phone'] as String : '';
+    if (phone.trim().isNotEmpty) {
+      _phoneToAccount[_normalizePhone(phone)] = userId;
+    }
     _roles[userId] = remoteRoles;
     currentUserId = userId;
     activeRole = remoteRoles.contains(PetVaultRole.owner)
@@ -864,42 +871,54 @@ class PetVaultStore extends ChangeNotifier {
   void _seedDemoData() {
     _accounts[currentUserId] = _DemoAccount(
       name: 'Hammad Farman',
+      email: currentUserId,
       password: 'demo1234',
       verified: true,
     );
+    _phoneToAccount['+15550000001'] = currentUserId;
     _roles[currentUserId] = <PetVaultRole>{PetVaultRole.owner};
     _accounts['vendor@petvault.demo'] = _DemoAccount(
       name: 'Paw Pantry',
+      email: 'vendor@petvault.demo',
       password: 'demo1234',
       verified: true,
     );
+    _phoneToAccount['+15550000002'] = 'vendor@petvault.demo';
     _roles['vendor@petvault.demo'] = <PetVaultRole>{PetVaultRole.vendor};
     _accounts['admin@petvault.demo'] = _DemoAccount(
       name: 'PetVault Admin',
+      email: 'admin@petvault.demo',
       password: 'demo1234',
       verified: true,
     );
+    _phoneToAccount['+15550000003'] = 'admin@petvault.demo';
     _roles['admin@petvault.demo'] = <PetVaultRole>{PetVaultRole.admin};
     _accounts['vet@petvault.demo'] = _DemoAccount(
       name: 'Dr. Ayesha Ali',
+      email: 'vet@petvault.demo',
       password: 'demo1234',
       verified: true,
     );
+    _phoneToAccount['+15550000004'] = 'vet@petvault.demo';
     _roles['vet@petvault.demo'] = <PetVaultRole>{PetVaultRole.veterinarian};
     _accounts['seller@petvault.demo'] = _DemoAccount(
       name: 'Zara Ahmed',
+      email: 'seller@petvault.demo',
       password: 'demo1234',
       verified: true,
     );
+    _phoneToAccount['+15550000005'] = 'seller@petvault.demo';
     _roles['seller@petvault.demo'] = <PetVaultRole>{
       PetVaultRole.owner,
       PetVaultRole.seller,
     };
     _accounts['sitter@petvault.demo'] = _DemoAccount(
       name: 'Sana Ali',
+      email: 'sitter@petvault.demo',
       password: 'demo1234',
       verified: true,
     );
+    _phoneToAccount['+15550000006'] = 'sitter@petvault.demo';
     _roles['sitter@petvault.demo'] = <PetVaultRole>{PetVaultRole.sitter};
     kyc['vendor@petvault.demo'] = KycStatus.verified;
     kyc['vet@petvault.demo'] = KycStatus.verified;
@@ -1072,11 +1091,13 @@ class PetVaultStore extends ChangeNotifier {
     required String email,
     required String phone,
     required String password,
+    PetVaultRole? role,
   }) {
     final normalizedEmail = email.trim().toLowerCase();
+    final normalizedPhone = _normalizePhone(phone);
     if (name.trim().isEmpty ||
         !normalizedEmail.contains('@') ||
-        phone.trim().length < 7 ||
+        normalizedPhone.length < 7 ||
         password.length < 8) {
       return _fail(
           'Enter a name, valid email, phone number, and password of at least 8 characters.');
@@ -1084,17 +1105,24 @@ class PetVaultStore extends ChangeNotifier {
     if (_accounts.containsKey(normalizedEmail)) {
       return _fail('An account already exists for this email address.');
     }
+    if (_phoneToAccount.containsKey(normalizedPhone)) {
+      return _fail('An account already exists for this phone number.');
+    }
+    final requestedRole = role ?? PetVaultRole.owner;
     _accounts[normalizedEmail] = _DemoAccount(
       name: name.trim(),
+      email: normalizedEmail,
       password: password,
-      phone: phone.trim(),
+      phone: normalizedPhone,
     );
-    _roles[normalizedEmail] = <PetVaultRole>{PetVaultRole.owner};
+    _phoneToAccount[normalizedPhone] = normalizedEmail;
+    _roles[normalizedEmail] = <PetVaultRole>{requestedRole};
     kyc[normalizedEmail] = KycStatus.notSubmitted;
     _pendingVerification.add(normalizedEmail);
     currentUserId = normalizedEmail;
-    activeRole = PetVaultRole.owner;
+    activeRole = requestedRole;
     lastOtp = '123456';
+    lastOtpIssuedAt = _clock();
     _pushNotification(
         'Verify your account', 'Demo verification code: $lastOtp');
     _recordAudit('Account registration', normalizedEmail);
@@ -1106,13 +1134,19 @@ class PetVaultStore extends ChangeNotifier {
   bool verifyAccount(String code) {
     final account = _accounts[currentUserId];
     if (account == null) return _fail('Register or sign in before verifying.');
-    if (lastOtp == null || code.trim() != lastOtp) {
+    final expiry = lastOtpIssuedAt?.add(const Duration(minutes: 10));
+    if (lastOtp == null ||
+        code.trim() != lastOtp ||
+        (expiry != null && _clock().isAfter(expiry))) {
+      lastOtp = null;
+      lastOtpIssuedAt = null;
       return _fail('That verification code is invalid or expired.');
     }
     account.verified = true;
     _pendingVerification.remove(currentUserId);
     _roles.putIfAbsent(currentUserId, () => <PetVaultRole>{PetVaultRole.owner});
     lastOtp = null;
+    lastOtpIssuedAt = null;
     _recordAudit('Account verified', currentUserId);
     _pushNotification('Account verified', 'Your account is ready to use.');
     notifyListeners();
@@ -1125,6 +1159,7 @@ class PetVaultStore extends ChangeNotifier {
       return _fail('Register before requesting a verification code.');
     }
     lastOtp = '123456';
+    lastOtpIssuedAt = _clock();
     _pushNotification(
         'Verification code reissued', 'Demo verification code: $lastOtp');
     notifyListeners();
@@ -1133,7 +1168,10 @@ class PetVaultStore extends ChangeNotifier {
   }
 
   bool signIn(String email, String password) {
-    final key = email.trim().toLowerCase();
+    final lookup = email.trim();
+    final key = lookup.contains('@')
+        ? lookup.toLowerCase()
+        : _phoneToAccount[_normalizePhone(lookup)] ?? lookup.toLowerCase();
     final account = _accounts[key];
     if (account == null) return _fail('Email or password is incorrect.');
     final now = _clock();
@@ -1158,6 +1196,7 @@ class PetVaultStore extends ChangeNotifier {
     if (!account.verified) {
       currentUserId = key;
       lastOtp = '123456';
+      lastOtpIssuedAt = _clock();
       notifyListeners();
       return _fail('Verify your account first. Demo code: 123456.');
     }
@@ -1178,18 +1217,25 @@ class PetVaultStore extends ChangeNotifier {
     currentUserId = '';
     activeRole = PetVaultRole.owner;
     lastOtp = null;
+    lastOtpIssuedAt = null;
     lastResetCode = null;
+    lastResetCodeIssuedAt = null;
     _recordAudit('Signed out', 'session');
     notifyListeners();
   }
 
   bool requestPasswordReset(String email) {
-    final key = email.trim().toLowerCase();
+    final normalized = email.trim();
+    final key = normalized.contains('@')
+        ? normalized.toLowerCase()
+        : _phoneToAccount[_normalizePhone(normalized)] ??
+            normalized.toLowerCase();
     final account = _accounts[key];
     if (account == null || !account.verified) {
       return _fail('No verified account was found for that email.');
     }
     lastResetCode = '654321';
+    lastResetCodeIssuedAt = _clock();
     _pushNotification('Password reset requested',
         'Demo reset code: $lastResetCode. Do not share this code.');
     notifyListeners();
@@ -1202,12 +1248,20 @@ class PetVaultStore extends ChangeNotifier {
     required String code,
     required String newPassword,
   }) {
-    final key = email.trim().toLowerCase();
+    final normalized = email.trim();
+    final key = normalized.contains('@')
+        ? normalized.toLowerCase()
+        : _phoneToAccount[_normalizePhone(normalized)] ??
+            normalized.toLowerCase();
     final account = _accounts[key];
+    final expiry = lastResetCodeIssuedAt?.add(const Duration(minutes: 15));
     if (account == null ||
         !account.verified ||
         code.trim() != lastResetCode ||
+        (expiry != null && _clock().isAfter(expiry)) ||
         newPassword.length < 8) {
+      lastResetCode = null;
+      lastResetCodeIssuedAt = null;
       return _fail(
           'Check your reset code and enter a password of at least 8 characters.');
     }
@@ -1215,6 +1269,7 @@ class PetVaultStore extends ChangeNotifier {
     account.failedAttempts = 0;
     account.lockedUntil = null;
     lastResetCode = null;
+    lastResetCodeIssuedAt = null;
     _recordAudit('Password reset', key);
     _pushNotification('Password updated', 'Your demo password was changed.');
     notifyListeners();
@@ -2541,6 +2596,10 @@ class PetVaultStore extends ChangeNotifier {
     for (final entry in audit) {
       if (entry.actor == deletedUserId) entry.actor = anonymousId;
     }
+    final phone = _accounts[deletedUserId]?.phone;
+    if (phone != null && phone.isNotEmpty) {
+      _phoneToAccount.remove(_normalizePhone(phone));
+    }
     _accounts.remove(deletedUserId);
     _roles.remove(deletedUserId);
     kyc.remove(deletedUserId);
@@ -2671,6 +2730,16 @@ class PetVaultStore extends ChangeNotifier {
 
   String _id(String prefix) =>
       '$prefix-${_clock().microsecondsSinceEpoch}-${audit.length}';
+
+  static String _normalizePhone(String phone) {
+    final digits = phone.replaceAll(RegExp(r'\D+'), '');
+    if (digits.isEmpty) return phone.trim();
+    return digits.startsWith('00')
+        ? '+${digits.substring(2)}'
+        : digits.startsWith('0')
+            ? '+92${digits.substring(1)}'
+            : '+$digits';
+  }
 
   static bool _sameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;

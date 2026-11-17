@@ -1,11 +1,11 @@
 {
-    "name": "petvault",
-    "short_name": "petvault",
+    "name": "ThePetsVault",
+    "short_name": "PetVault",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#FAF7F2",
+    "theme_color": "#427C77",
+    "description": "Pet care records, trusted care services, and a safer pet marketplace in one place.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

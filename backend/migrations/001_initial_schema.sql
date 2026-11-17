@@ -270,3 +270,4 @@ CREATE TABLE IF NOT EXISTS audit_events (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS audit_events_actor_created_idx ON audit_events (actor_id, created_at DESC);
+>>>>>>> 24ecb6467fbec18fd7e609611217a71dd686272b

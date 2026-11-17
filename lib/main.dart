@@ -64,6 +64,7 @@ enum AppPage {
   bookingCalendar,
   activeSitting,
   adminDashboard,
+  adminAccess,
   kycQueue,
   identityApproval,
   riskQueue,
@@ -160,6 +161,7 @@ const _catalogGroups = <String, List<AppPage>>{
   ],
   'Trust & administration': <AppPage>[
     AppPage.adminDashboard,
+    AppPage.adminAccess,
     AppPage.kycQueue,
     AppPage.identityApproval,
     AppPage.riskQueue,
@@ -182,6 +184,8 @@ String _titleFor(AppPage page) {
       return '02 Welcome';
     case AppPage.authentication:
       return '03 Sign in';
+    case AppPage.passwordReset:
+      return 'Reset password';
     case AppPage.registration:
       return '04 Create account';
     case AppPage.otp:
@@ -268,6 +272,8 @@ String _titleFor(AppPage page) {
       return 'Active sitting';
     case AppPage.adminDashboard:
       return 'Admin dashboard';
+    case AppPage.adminAccess:
+      return 'Admin role & access';
     case AppPage.kycQueue:
       return 'KYC verification queue';
     case AppPage.identityApproval:
@@ -299,6 +305,7 @@ bool _isOnboarding(AppPage page) => const <AppPage>{
       AppPage.splash,
       AppPage.welcome,
       AppPage.authentication,
+      AppPage.passwordReset,
       AppPage.registration,
       AppPage.otp,
       AppPage.roleSelection,
@@ -308,6 +315,7 @@ bool _isOnboarding(AppPage page) => const <AppPage>{
 
 bool _isAdmin(AppPage page) => const <AppPage>{
       AppPage.adminDashboard,
+      AppPage.adminAccess,
       AppPage.kycQueue,
       AppPage.identityApproval,
       AppPage.riskQueue,
@@ -383,9 +391,10 @@ class PetVaultApp extends StatelessWidget {
 }
 
 class VaultPageView extends StatefulWidget {
-  const VaultPageView({required this.page, super.key});
+  const VaultPageView({required this.page, this.initialEmail, super.key});
 
   final AppPage page;
+  final String? initialEmail;
 
   @override
   State<VaultPageView> createState() => _VaultPageViewState();
@@ -399,6 +408,8 @@ class _VaultPageViewState extends State<VaultPageView> {
   final _kycReferenceController = TextEditingController();
   final _shareRecipientController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _resetCodeController = TextEditingController();
+  final _newPasswordController = TextEditingController();
   final _otpController = TextEditingController();
   final _petNameController = TextEditingController();
   final _speciesController = TextEditingController();
@@ -446,6 +457,7 @@ class _VaultPageViewState extends State<VaultPageView> {
   String _category = 'All';
   String _speciesFilter = '';
   bool _verifiedOnly = false;
+  String _selectedSignupRole = 'owner';
   String _selectedRole = 'seller';
   String _selectedReportReason = 'Misleading health information';
   String _selectedPetId = PetVaultApp.selectedPetId;
@@ -457,6 +469,7 @@ class _VaultPageViewState extends State<VaultPageView> {
   bool _listingConfirmed = false;
   bool _authSubmitting = false;
   bool _otpSubmitting = false;
+  bool _passwordResetSubmitting = false;
   bool _checkoutSubmitting = false;
   bool _visitSubmitting = false;
   bool _requireShareConsent = true;
@@ -467,6 +480,7 @@ class _VaultPageViewState extends State<VaultPageView> {
   Uint8List? _healthDocumentBytes;
   String? _supportResponse;
   String? _triageResponse;
+  String? _passwordResetDevCode;
   List<Map<String, dynamic>> _remoteModerationListings =
       <Map<String, dynamic>>[];
   List<Map<String, dynamic>> _remoteSitters = <Map<String, dynamic>>[];
@@ -492,6 +506,9 @@ class _VaultPageViewState extends State<VaultPageView> {
     super.initState();
     _requireShareConsent = _store.requireExplicitConsent;
     _allowSitterFullRecords = _store.allowSitterFullRecords;
+    if (widget.page == AppPage.passwordReset) {
+      _emailController.text = widget.initialEmail ?? '';
+    }
     if (widget.page == AppPage.otp) {
       _otpController.text = _api.developmentVerificationCode ?? '';
     }
@@ -595,13 +612,17 @@ class _VaultPageViewState extends State<VaultPageView> {
   }
 
   Future<void> _loadSignedInData() async {
-    await Future.wait(<Future<void>>[
+    final requests = <Future<void>>[
       _loadRemotePets(),
       _loadRemoteListings(),
       _loadRemoteProducts(),
-      _loadRemoteOrders(),
-    ]);
+    ];
+    if (_canAccessOrders) requests.add(_loadRemoteOrders());
+    await Future.wait(requests);
   }
+
+  bool get _canAccessOrders =>
+      _api.activeRole == 'owner' || _api.activeRole == 'vendor';
 
   Future<void> _loadRemoteProviders(String role) async {
     try {
@@ -832,6 +853,7 @@ class _VaultPageViewState extends State<VaultPageView> {
   }
 
   Future<void> _loadRemoteOrders() async {
+    if (!_canAccessOrders) return;
     try {
       final orders = await _api.fetchOrders();
       if (mounted) _store.replaceRemoteOrders(orders);
@@ -963,6 +985,8 @@ class _VaultPageViewState extends State<VaultPageView> {
     _kycReferenceController.dispose();
     _shareRecipientController.dispose();
     _passwordController.dispose();
+    _resetCodeController.dispose();
+    _newPasswordController.dispose();
     _otpController.dispose();
     _petNameController.dispose();
     _speciesController.dispose();
@@ -1024,7 +1048,12 @@ class _VaultPageViewState extends State<VaultPageView> {
     }
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => VaultPageView(page: next),
+        builder: (_) => VaultPageView(
+          page: next,
+          initialEmail: next == AppPage.passwordReset
+              ? _emailController.text.trim()
+              : null,
+        ),
       ),
     );
   }
@@ -1084,12 +1113,18 @@ class _VaultPageViewState extends State<VaultPageView> {
         AppPage.splash,
         AppPage.welcome,
         AppPage.authentication,
+        AppPage.passwordReset,
         AppPage.registration,
         AppPage.otp,
         AppPage.marketplace,
         AppPage.listingDetail,
         AppPage.shop,
         AppPage.productDetail,
+        AppPage.checkout,
+        AppPage.petVisitRequests,
+        AppPage.userSettings,
+        AppPage.dataPrivacy,
+        AppPage.notifications,
       }.contains(page);
 
   void _toast(String message) {
@@ -1541,7 +1576,8 @@ class _VaultPageViewState extends State<VaultPageView> {
       AppPage.teleConsultation =>
         Icons.medical_services_outlined,
       AppPage.kycQueue ||
-      AppPage.identityApproval =>
+      AppPage.identityApproval ||
+      AppPage.adminAccess =>
         Icons.verified_user_outlined,
       AppPage.riskQueue ||
       AppPage.listingModeration ||
@@ -1689,6 +1725,8 @@ class _VaultPageViewState extends State<VaultPageView> {
         return _welcome();
       case AppPage.authentication:
         return _authentication();
+      case AppPage.passwordReset:
+        return _passwordReset();
       case AppPage.registration:
         return _registration();
       case AppPage.otp:
@@ -1776,6 +1814,8 @@ class _VaultPageViewState extends State<VaultPageView> {
         return _activeSitting();
       case AppPage.adminDashboard:
         return _adminDashboard();
+      case AppPage.adminAccess:
+        return _adminAccess();
       case AppPage.kycQueue:
         return _kycQueue();
       case AppPage.identityApproval:
@@ -1963,7 +2003,14 @@ class _VaultPageViewState extends State<VaultPageView> {
           Icon(icon, size: 18),
           const SizedBox(width: 8),
         ],
-        Text(label),
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+          ),
+        ),
       ],
     );
     return SizedBox(
@@ -2261,23 +2308,141 @@ class _VaultPageViewState extends State<VaultPageView> {
             primary: false, icon: Icons.person_add_alt_1_rounded),
         Center(
           child: TextButton(
-            onPressed: () async {
-              try {
-                final response = await _api.requestPasswordReset(
-                  _emailController.text,
-                );
-                if (!mounted) return;
-                final code = response['devCode'];
-                _toast(code is String
-                    ? 'Development reset code: $code.'
-                    : (response['message'] as String? ??
-                        'If the account exists, a reset code was issued.'));
-              } on PetVaultApiException catch (error) {
-                _showApiError(error);
-              }
-            },
+            onPressed: () => _open(AppPage.passwordReset),
             child: const Text('Forgot password?'),
           ),
+        ),
+      ],
+    );
+  }
+
+  Widget _passwordReset() {
+    return _scroll(
+      <Widget>[
+        const SizedBox(height: 30),
+        _title(
+          'Reset your password',
+          subtitle:
+              'Request a one-time code, then choose a new password for your account.',
+        ),
+        const SizedBox(height: 20),
+        _field(
+          'Email address',
+          hint: 'you@example.com',
+          controller: _emailController,
+          keyboardType: TextInputType.emailAddress,
+        ),
+        const SizedBox(height: 12),
+        _button(
+          _passwordResetSubmitting ? 'Sending code...' : 'Send reset code',
+          () async {
+            if (_passwordResetSubmitting) return;
+            final email = _emailController.text.trim();
+            if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email)) {
+              _toast('Enter a valid email address.');
+              return;
+            }
+            setState(() {
+              _passwordResetSubmitting = true;
+              _passwordResetDevCode = null;
+            });
+            try {
+              final response = await _api.requestPasswordReset(email);
+              if (!mounted) return;
+              final code = response['devCode'];
+              setState(() {
+                _passwordResetDevCode = code is String ? code : null;
+              });
+              _toast(response['message'] is String
+                  ? response['message'] as String
+                  : 'If the account exists, a reset code was issued.');
+            } on PetVaultApiException catch (error) {
+              _showApiError(error);
+            } finally {
+              if (mounted) setState(() => _passwordResetSubmitting = false);
+            }
+          },
+          isLoading: _passwordResetSubmitting,
+        ),
+        if (_passwordResetDevCode != null) ...<Widget>[
+          const SizedBox(height: 12),
+          _card(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                const Text(
+                  'Local development reset code',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 6),
+                SelectableText(_passwordResetDevCode!),
+                const SizedBox(height: 4),
+                const Text(
+                  'This code is for local development only.',
+                  style: TextStyle(color: _muted, fontSize: 12),
+                ),
+              ],
+            ),
+            color: _paleTeal,
+          ),
+        ],
+        const SizedBox(height: 18),
+        _field(
+          '6-digit reset code',
+          hint: 'Enter the code from your email',
+          controller: _resetCodeController,
+          keyboardType: TextInputType.number,
+        ),
+        const SizedBox(height: 12),
+        _field(
+          'New password',
+          hint: 'At least 8 characters',
+          controller: _newPasswordController,
+          obscureText: true,
+        ),
+        const SizedBox(height: 16),
+        _button(
+          _passwordResetSubmitting ? 'Updating password...' : 'Update password',
+          () async {
+            if (_passwordResetSubmitting) return;
+            final email = _emailController.text.trim();
+            final code = _resetCodeController.text.trim();
+            final newPassword = _newPasswordController.text;
+            if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email)) {
+              _toast('Enter a valid email address.');
+              return;
+            }
+            if (!RegExp(r'^\d{6}$').hasMatch(code)) {
+              _toast('Enter the 6-digit reset code.');
+              return;
+            }
+            if (newPassword.length < 8) {
+              _toast('Choose a password with at least 8 characters.');
+              return;
+            }
+            setState(() => _passwordResetSubmitting = true);
+            try {
+              await _api.confirmPasswordReset(
+                email: email,
+                code: code,
+                newPassword: newPassword,
+              );
+              if (!mounted) return;
+              _toast('Password updated. Sign in with your new password.');
+              Navigator.of(context).pop();
+            } on PetVaultApiException catch (error) {
+              _showApiError(error);
+            } finally {
+              if (mounted) setState(() => _passwordResetSubmitting = false);
+            }
+          },
+          isLoading: _passwordResetSubmitting,
+        ),
+        const SizedBox(height: 10),
+        _button(
+          'Back to sign in',
+          () => Navigator.of(context).pop(),
+          primary: false,
         ),
       ],
     );
@@ -2306,6 +2471,55 @@ class _VaultPageViewState extends State<VaultPageView> {
             hint: 'At least 8 characters',
             controller: _passwordController,
             obscureText: true),
+        const SizedBox(height: 13),
+        DropdownButtonFormField<String>(
+          initialValue: _selectedSignupRole,
+          decoration: InputDecoration(
+            labelText: 'Account role',
+            hintText: 'Choose a role',
+            filled: true,
+            fillColor: Colors.white,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: const BorderSide(color: _line),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: const BorderSide(color: _line),
+            ),
+          ),
+          items: const <DropdownMenuItem<String>>[
+            DropdownMenuItem<String>(
+              value: 'owner',
+              child: Text('Pet parent'),
+            ),
+            DropdownMenuItem<String>(
+              value: 'admin',
+              child: Text('Admin'),
+            ),
+            DropdownMenuItem<String>(
+              value: 'seller',
+              child: Text('Seller'),
+            ),
+            DropdownMenuItem<String>(
+              value: 'sitter',
+              child: Text('Pet sitter'),
+            ),
+            DropdownMenuItem<String>(
+              value: 'veterinarian',
+              child: Text('Veterinarian'),
+            ),
+            DropdownMenuItem<String>(
+              value: 'vendor',
+              child: Text('Vendor'),
+            ),
+          ],
+          onChanged: (value) {
+            if (value != null) {
+              setState(() => _selectedSignupRole = value);
+            }
+          },
+        ),
         const SizedBox(height: 15),
         _card(
           const Row(
@@ -2356,6 +2570,7 @@ class _VaultPageViewState extends State<VaultPageView> {
                 email: email,
                 phone: phone,
                 password: password,
+                role: _selectedSignupRole,
               );
               if (!mounted) return;
               _toast('Account created. Verify your email to continue.');
@@ -2459,10 +2674,18 @@ class _VaultPageViewState extends State<VaultPageView> {
             setState(() => _otpSubmitting = true);
             try {
               final user = await _api.verifyAccount(_otpController.text.trim());
-              _store.activateRemoteSession(user);
+              final finalUser = <String, dynamic>{
+                ...user,
+                'roles': <String>[_selectedSignupRole],
+              };
+              _store.activateRemoteSession(finalUser);
               await _loadSignedInData();
               if (!mounted) return;
-              _open(AppPage.roleSelection);
+              if (_selectedSignupRole == 'admin') {
+                _open(AppPage.adminDashboard);
+              } else {
+                _open(AppPage.roleSelection);
+              }
             } on PetVaultApiException catch (error) {
               _showApiError(error);
             } on FormatException catch (error) {
@@ -2480,6 +2703,11 @@ class _VaultPageViewState extends State<VaultPageView> {
   Widget _roleSelection() {
     final roles = <(String, String, IconData)>[
       ('Pet parent', 'Manage profiles and care records', Icons.pets_outlined),
+      (
+        'Admin',
+        'Review KYC, moderation, and platform operations',
+        Icons.admin_panel_settings_outlined
+      ),
       (
         'Breeder / seller',
         'Create a trusted pet listing',
@@ -2513,6 +2741,18 @@ class _VaultPageViewState extends State<VaultPageView> {
                     } else {
                       _toast(_store.lastError ?? 'Owner role is unavailable.');
                     }
+                    return;
+                  }
+                  if (role.$1 == 'Admin') {
+                    if (!_store.selectInitialSupplyRole(PetVaultRole.admin)) {
+                      _toast(_store.lastError ?? 'Admin role is unavailable.');
+                      return;
+                    }
+                    if (_api.canSelectRole('admin')) {
+                      await _api.selectRole('admin');
+                    }
+                    _selectedRole = 'admin';
+                    _open(AppPage.adminDashboard);
                     return;
                   }
                   if (role.$1 == 'Breeder / seller') {
@@ -2749,8 +2989,14 @@ class _VaultPageViewState extends State<VaultPageView> {
             scrollDirection: Axis.horizontal,
             children: <Widget>[
               if (pets.isEmpty)
-                _card(
-                  _button('Add your first pet', () => _open(AppPage.addPet)),
+                SizedBox(
+                  width: 280,
+                  child: _card(
+                    _button(
+                      'Add your first pet',
+                      () => _open(AppPage.addPet),
+                    ),
+                  ),
                 )
               else
                 for (final pet in pets) ...<Widget>[
@@ -5166,6 +5412,12 @@ class _VaultPageViewState extends State<VaultPageView> {
   }
 
   Widget _orderTracking() {
+    if (!_canAccessOrders) {
+      return _scroll(<Widget>[
+        _title('Order tracking'),
+        const Text('Orders are available to pet owners and vendors.'),
+      ]);
+    }
     final orders = _store.visibleOrders.reversed.toList();
     final order = orders.isEmpty ? null : orders.first;
     if (order == null) {
@@ -5966,9 +6218,150 @@ class _VaultPageViewState extends State<VaultPageView> {
             '$riskFlagCount listing(s) flagged for human review',
             'Review →',
             () => _open(AppPage.riskQueue)),
+        const SizedBox(height: 9),
+        _actionRow(
+            Icons.admin_panel_settings_outlined,
+            'Admin role & access',
+            'Review administrator permissions and decision scope',
+            'View →',
+            () => _open(AppPage.adminAccess)),
         const SizedBox(height: 14),
         _button('Open audit trail', () => _open(AppPage.auditTrail),
             primary: false),
+      ],
+    );
+  }
+
+  Widget _adminAccess() {
+    return _scroll(
+      <Widget>[
+        _title(
+          'Admin role & access',
+          subtitle:
+              'Review full case details and make decisions after human screening.',
+        ),
+        const SizedBox(height: 12),
+        _card(
+          Row(
+            children: <Widget>[
+              const CircleAvatar(
+                backgroundColor: _paleTeal,
+                foregroundColor: _teal,
+                child: Icon(Icons.admin_panel_settings_outlined),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      _store.currentUserName,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 16,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    const Text(
+                      'Platform administrator · full review access',
+                      style: TextStyle(color: _muted, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              _pill('ADMIN'),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        _section('Access rights'),
+        const SizedBox(height: 8),
+        _card(
+          Column(
+            children: <Widget>[
+              _accessRight(
+                Icons.manage_search_outlined,
+                'View screening details',
+                'Review applicant identity references, role requests, listing details, disclosures, reports, and risk signals in the admin queues.',
+              ),
+              const Divider(height: 22, color: _line),
+              _accessRight(
+                Icons.verified_user_outlined,
+                'Authorize or reject verification',
+                'Approve a role after screening, or reject the request with a review note.',
+              ),
+              const Divider(height: 22, color: _line),
+              _accessRight(
+                Icons.fact_check_outlined,
+                'Approve or cancel listing requests',
+                'Publish a screened listing or reject it to close the request; open reports are marked reviewed with the moderation decision.',
+              ),
+              const Divider(height: 22, color: _line),
+              _accessRight(
+                Icons.history_rounded,
+                'Review the audit trail',
+                'Administrative decisions are recorded and the requester is notified.',
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        _card(
+          const Text(
+            'Admin access is limited to accounts assigned the admin role. Screening decisions are manual; risk signals are not proof of wrongdoing. Use the review queues before taking action.',
+            style: TextStyle(color: _muted, height: 1.4, fontSize: 12),
+          ),
+        ),
+        const SizedBox(height: 15),
+        _section('Open a review queue'),
+        const SizedBox(height: 8),
+        _actionRow(
+          Icons.verified_user_outlined,
+          'Identity verification',
+          '${_remoteKyc.length} submission(s) waiting',
+          'Open →',
+          () => _open(AppPage.kycQueue),
+        ),
+        const SizedBox(height: 8),
+        _actionRow(
+          Icons.fact_check_outlined,
+          'Listing moderation',
+          'Screen and decide pending listings and reports',
+          'Open →',
+          () => _open(AppPage.listingModeration),
+        ),
+        const SizedBox(height: 8),
+        _actionRow(
+          Icons.history_rounded,
+          'Audit trail',
+          'Review recorded administrator decisions',
+          'Open →',
+          () => _open(AppPage.auditTrail),
+        ),
+      ],
+    );
+  }
+
+  Widget _accessRight(IconData icon, String title, String detail) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Icon(icon, color: _teal, size: 20),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+              const SizedBox(height: 3),
+              Text(
+                detail,
+                style:
+                    const TextStyle(color: _muted, height: 1.35, fontSize: 12),
+              ),
+            ],
+          ),
+        ),
       ],
     );
   }

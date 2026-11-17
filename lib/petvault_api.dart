@@ -35,6 +35,7 @@ class PetVaultApi {
     required String email,
     required String phone,
     required String password,
+    String? role,
   }) async {
     pendingEmail = null;
     developmentVerificationCode = null;
@@ -46,6 +47,7 @@ class PetVaultApi {
         'email': email,
         'phone': phone,
         'password': password,
+        if (role != null && role.trim().isNotEmpty) 'role': role.trim(),
       },
     );
     pendingEmail = email.trim().toLowerCase();
