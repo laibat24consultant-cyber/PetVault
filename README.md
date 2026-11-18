@@ -100,11 +100,14 @@ open reports, and unusually high seller listing volume. These scores only
 prioritize human review; they never automatically reject a listing. The admin
 workspace uses database-backed counts and paginated records for account
 management, listings and reports, bookings, appointments, orders, disputes,
-reviews, notifications, support requests, and audit events. Account suspension
-revokes existing sessions; dispute notes record administrative decisions but
-do not issue refunds or change payment settlement. The tests include a small
+products and vendor inventory, reviews, notifications, support requests, and
+audit events. Account suspension revokes existing sessions; dispute notes
+record administrative decisions but do not issue refunds or change payment
+settlement. The tests include a small
 synthetic risk benchmark; it is not evidence of production model performance.
 Representative labeled cases and domain review are still needed.
+The desktop admin workspace keeps a scrollable module sidebar visible, and
+dashboard statistic cards open their corresponding record views.
 
 `npm.cmd test` runs backend configuration tests. The PostgreSQL integration
 suite creates and drops a unique schema only in a local disposable database
@@ -141,6 +144,13 @@ explicitly selected for local demos. No identity-document upload, health-file st
 production notification delivery, or shipping/carrier integration is
 configured. Health-record creation persists record metadata and an optional
 attachment name only; it does not upload the selected file bytes.
+
+Public account creation offers only Owner, Seller, Sitter, Veterinarian, and
+Vendor. Seller signup keeps the existing Owner + Seller role pairing; other
+role activation requires the account to already hold that role and complete
+the applicable verification workflow. The backend rejects and audits attempts
+to submit or activate unsupported roles. Admin is an internal role and can
+only be provisioned by the protected server-side command below.
 
 To provision a real administrator, first apply migrations, then run
 `npm.cmd run admin:provision` from `backend` with `ADMIN_EMAIL`,

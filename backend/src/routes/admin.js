@@ -265,6 +265,44 @@ export function registerAdminRoutes(router, { pool, requireRole }) {
     res.json(paged(result.rows, count.rows[0].total, page, pageSize));
   }));
 
+  router.get('/admin/products', requireRole('admin'), asyncRoute(async (req, res) => {
+    const query = queryParts(z.object({
+      ...pageFields,
+      status: z.enum(['published', 'unpublished', 'out_of_stock']).optional(),
+    }).strict(), req.query);
+    const where = [];
+    const values = [];
+    if (query.status === 'published') where.push('p.published = true');
+    if (query.status === 'unpublished') where.push('p.published = false');
+    if (query.status === 'out_of_stock') where.push('p.stock = 0');
+    appendSearch(
+      where,
+      values,
+      `(p.id::text ILIKE ? OR p.name ILIKE ? OR vendor.display_name ILIKE ? OR vendor.email ILIKE ?)`,
+      query.q,
+    );
+    const joins = `FROM products p
+      JOIN users vendor ON vendor.id = p.vendor_id`;
+    const predicate = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const count = await pool.query(
+      `SELECT count(*)::int AS total ${joins} ${predicate}`,
+      values,
+    );
+    const page = query.page;
+    const pageSize = query.pageSize;
+    const result = await pool.query(
+      `SELECT p.id, p.vendor_id, vendor.display_name AS vendor_name,
+              vendor.email AS vendor_email, p.name, p.price, p.stock,
+              p.published, p.created_at, p.updated_at
+         ${joins}
+         ${predicate}
+        ORDER BY p.updated_at DESC, p.id
+        LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
+      [...values, pageSize, (page - 1) * pageSize],
+    );
+    res.json(paged(result.rows, count.rows[0].total, page, pageSize));
+  }));
+
   router.get('/admin/bookings', requireRole('admin'), asyncRoute(async (req, res) => {
     const query = queryParts(z.object({
       ...pageFields,

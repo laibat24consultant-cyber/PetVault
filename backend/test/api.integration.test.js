@@ -51,6 +51,7 @@ before(async () => {
     pool,
     config,
     emailSender: async () => {},
+    authRequestLimit: 100,
   });
   server = await new Promise((resolve) => {
     const listening = app.listen(0, '127.0.0.1', () => resolve(listening));
@@ -78,17 +79,39 @@ test('authentication, role authorization, marketplace and commerce workflows', {
   const health = await request('/health');
   assert.equal(health.status, 200);
 
-  const adminSignup = await request('/auth/register', 'POST', {
-    displayName: 'Untrusted Admin',
-    email: 'untrusted-admin@example.test',
-    phone: '+12025550999',
-    password: 'a-strong-password',
-    role: 'admin',
-  });
-  assert.equal(adminSignup.status, 403);
+  const rejectedRoles = ['admin', 'Admin', 'ADMIN', ' admin ', 'administrator'];
+  for (const [index, role] of rejectedRoles.entries()) {
+    const rejectedSignup = await request('/auth/register', 'POST', {
+      displayName: 'Untrusted Admin',
+      email: `untrusted-role-${index}@example.test`,
+      phone: `+120255509${String(index).padStart(2, '0')}`,
+      password: 'a-strong-password',
+      role,
+    });
+    assert.equal(rejectedSignup.status, 403, `role ${JSON.stringify(role)}`);
+  }
+  const rejectedRegistrationAudit = await pool.query(
+    `SELECT metadata->>'attemptedRole' AS attempted_role
+       FROM audit_events
+      WHERE action = 'account.registration_role_rejected'
+      ORDER BY created_at`,
+  );
+  assert.deepEqual(
+    rejectedRegistrationAudit.rows.map((row) => row.attempted_role),
+    rejectedRoles,
+  );
+  const rejectedRegistrationUsers = await pool.query(
+    `SELECT count(*)::int AS total FROM users
+      WHERE email LIKE 'untrusted-role-%@example.test'`,
+  );
+  assert.equal(rejectedRegistrationUsers.rows[0].total, 0);
 
   const owner = await registerAndVerify('owner@example.test', 'owner');
   const seller = await registerAndVerify('seller@example.test', 'owner');
+  const publicSeller = await registerAndVerify(
+    'public-seller@example.test',
+    'seller',
+  );
   const sitter = await registerAndVerify('sitter@example.test', 'sitter');
   const veterinarian = await registerAndVerify(
     'veterinarian@example.test',
@@ -106,10 +129,79 @@ test('authentication, role authorization, marketplace and commerce workflows', {
   const adminToken = await login(admin.email, 'a-very-strong-admin-password');
   const outsider = await registerAndVerify('outsider@example.test', 'owner');
 
+  assert.deepEqual(owner.user.roles, ['owner']);
+  assert.deepEqual(publicSeller.user.roles, ['owner', 'seller']);
+  assert.deepEqual(sitter.user.roles, ['sitter']);
+  assert.deepEqual(veterinarian.user.roles, ['veterinarian']);
+  assert.deepEqual(vendor.user.roles, ['vendor']);
+  assert.equal((await request(
+    '/admin/dashboard',
+    'GET',
+    undefined,
+    adminToken,
+    'admin',
+  )).status, 200);
+  assert.equal((await request(
+    '/auth/roles',
+    'POST',
+    { role: 'admin' },
+    adminToken,
+    'admin',
+  )).status, 200);
+
   assert.equal((await request('/pets', 'GET', undefined, null)).status, 401);
   assert.equal((await request('/pets', 'GET', undefined, 'not-a-valid-token')).status, 401);
   assert.equal((await request('/auth/roles', 'POST', { role: 'owner' }, owner.token)).status, 200);
   assert.equal((await request('/auth/roles', 'POST', { role: 'seller' }, owner.token)).status, 403);
+  for (const role of ['admin', 'Admin']) {
+    assert.equal((await request(
+      '/auth/roles',
+      'POST',
+      { role },
+      owner.token,
+    )).status, 403);
+    assert.equal((await request('/kyc', 'POST', {
+      role,
+      documentReference: 'attempted-admin-role',
+    }, owner.token)).status, 403);
+  }
+  const ownerRolesAfterPromotionAttempts = await pool.query(
+    'SELECT role FROM user_roles WHERE user_id = $1 ORDER BY role',
+    [owner.user.id],
+  );
+  assert.deepEqual(
+    ownerRolesAfterPromotionAttempts.rows.map((row) => row.role),
+    ['owner'],
+  );
+  const promotionAttemptAudit = await pool.query(
+    `SELECT action, metadata->>'attemptedRole' AS attempted_role
+       FROM audit_events
+      WHERE actor_id = $1
+        AND action IN (
+          'authorization.role_selection_denied',
+          'authorization.role_assignment_denied'
+        )
+        AND metadata->>'attemptedRole' IN ('admin', 'Admin')
+      ORDER BY created_at`,
+    [owner.user.id],
+  );
+  assert.deepEqual(
+    promotionAttemptAudit.rows.map((row) => [row.action, row.attempted_role]),
+    [
+      ['authorization.role_selection_denied', 'admin'],
+      ['authorization.role_assignment_denied', 'admin'],
+      ['authorization.role_selection_denied', 'Admin'],
+      ['authorization.role_assignment_denied', 'Admin'],
+    ],
+  );
+  const massAssignedRegistration = await request('/auth/register', 'POST', {
+    displayName: 'Mass Assignment User',
+    email: 'mass-assignment@example.test',
+    phone: '+12025550177',
+    password: 'a-strong-password',
+    roles: ['admin'],
+  });
+  assert.equal(massAssignedRegistration.status, 400);
   assert.equal((await request('/admin/kyc', 'GET', undefined, owner.token)).status, 403);
   assert.equal((await request('/products', 'POST', {
     name: 'Unauthorized product',
@@ -322,6 +414,7 @@ test('authentication, role authorization, marketplace and commerce workflows', {
   const adminListPaths = [
     '/admin/users?role=seller&verified=true',
     '/admin/listings?status=active',
+    '/admin/products?status=published',
     '/admin/bookings',
     '/admin/appointments',
     '/admin/orders?paymentStatus=paid',
@@ -336,6 +429,27 @@ test('authentication, role authorization, marketplace and commerce workflows', {
     assert.equal(response.status, 200, `${path}: ${JSON.stringify(response)}`);
     assert.ok(Array.isArray(response.body.items), path);
   }
+  const adminProducts = await request(
+    '/admin/products?status=published&q=Healthy',
+    'GET',
+    undefined,
+    adminToken,
+    'admin',
+  );
+  assert.ok(adminProducts.body.items.some(
+    (item) => item.id === createdProduct.body.product.id &&
+      item.vendorName === vendor.user.displayName,
+  ));
+  const adminOutOfStockProducts = await request(
+    '/admin/products?status=out_of_stock',
+    'GET',
+    undefined,
+    adminToken,
+    'admin',
+  );
+  assert.ok(adminOutOfStockProducts.body.items.some(
+    (item) => item.id === outOfStockProduct.body.product.id,
+  ));
   const adminUsers = await request(
     '/admin/users?role=seller&verified=true',
     'GET',
@@ -349,6 +463,12 @@ test('authentication, role authorization, marketplace and commerce workflows', {
   assert.deepEqual(sellerAccount.kycStatuses, { seller: 'verified' });
   assert.equal((await request(
     '/admin/dashboard',
+    'GET',
+    undefined,
+    owner.token,
+  )).status, 403);
+  assert.equal((await request(
+    '/admin/products',
     'GET',
     undefined,
     owner.token,

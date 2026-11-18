@@ -43,6 +43,32 @@
 | 10. Notifications | Notifications & Reminders | Partial | In-app notifications are stored for key workflow events. Push/email/SMS delivery and scheduled vaccination reminders are not configured. |
 | 11. Admin Dashboard & Analytics | Admin Dashboard & Secure Access | Partial | Admin-only dashboard counts and paginated operational views are database-backed. Production payment analytics and provider-dependent reporting are unavailable. |
 
+## Admin Panel implementation
+
+| Module | Status | Implementation notes |
+|---|---|---|
+| Dashboard | Completed | Counts come from PostgreSQL; cards drill into the relevant workspaces. |
+| User and role management | Partial | Search, role/status/email-verification filters, paginated account records, KYC status display, suspend/reactivate actions, and session revocation are available. Admins cannot directly edit assigned roles; role activation follows the existing user/KYC workflows. |
+| KYC & verification | Partial | Admin review and decision notes are persisted. Identity files and external licence verification are unavailable because no document/provider adapter exists. |
+| Pet listings & moderation | Completed | Search, pending listing decisions, report review, risk queue, and moderation audit records use existing database workflows. |
+| Bookings & veterinary appointments | Completed | Paginated scheduling/participant views; emergency contacts, consultation notes, and private health records are deliberately excluded. |
+| Marketplace orders & payment monitoring | Partial | Orders, items, vendors, payment states, and mock transaction status are visible. No real payment references, settlement, or refunds are exposed or performed. |
+| Products & vendors | Partial | Added a paginated, searchable, filterable, read-only products/inventory view joined with vendor identity. Vendors retain product-edit authority; no admin product-moderation state exists. |
+| Disputes | Partial | Intake and admin decisions persist with audit events; decisions do not issue refunds or settle transactions. |
+| Reviews & ratings | Partial | Admins can search and inspect records. Moderation is unavailable because the current schema has no moderation state/action. |
+| Notifications | Partial | Stored in-app notification activity is visible; external delivery status is not available. |
+| Support requests | Completed | Admins can search, page, and update supported request statuses. |
+| Audit logs | Completed | Paginated, read-only audit events are available through the admin API. |
+| Admin access & navigation | Completed | Server-enforced role checks, restricted provisioning, responsive bottom navigation, and a persistent scrollable desktop module sidebar with sign-out. |
+
+### Admin APIs and persistence
+
+- Admin routes include `/admin/dashboard`, `/admin/users`, `/admin/users/:id/status`, `/admin/listings`, `/admin/products`, `/admin/bookings`, `/admin/appointments`, `/admin/orders`, `/admin/disputes`, `/admin/reviews`, `/admin/notifications`, `/admin/audit-events`, and `/admin/support/requests`.
+- Existing KYC, listing moderation, and listing-report APIs remain in their current route modules; equivalent APIs were reused rather than duplicated.
+- All admin APIs apply backend `admin` role middleware. Administrative writes persist to PostgreSQL and relevant account, moderation, dispute, support, and KYC actions are audited.
+- Migration `004_admin_workflows.sql` supplies persisted account suspension, listing review metadata, and query indexes. The product view uses the existing products/vendor schema; this UI addition required no migration.
+- No migration resets or deletes existing records.
+
 ## Fixes covered by this audit
 
 - Restricted sitter access to emergency-contact details to the confirmed booking interval and added active-booking text check-ins.
@@ -51,15 +77,42 @@
 - Made repeat successful payment requests idempotent for notifications and audit events.
 - Added ownership-checked dispute intake with duplicate-open-case protection and admin notification/audit events.
 - Corrected date-only API serialization so database dates do not shift by a timezone day.
+- Added a persistent, scrollable admin desktop sidebar and dashboard statistic-card drill-downs to the corresponding record pages.
+- Added read-only product/vendor inventory administration with server-side search, filters, pagination, and non-admin denial coverage.
 - Updated the README's story-boundary table to reflect check-ins, consultation records, and dispute intake.
+
+## Important files changed
+
+- `backend/src/app.js` — shared pet-access extraction registration and date-only response serialization.
+- `backend/src/pet-access.js` — reusable pet ownership/consent access check.
+- `backend/src/routes/services.js` — active-booking contact privacy and check-ins; consent-checked vet consultation notes persisted to health records.
+- `backend/src/routes/commerce.js` — out-of-stock catalog visibility and idempotent successful payment side effects.
+- `backend/src/routes/disputes.js` — ownership-checked dispute intake, duplicate protection, admin notifications, and audit events.
+- `backend/src/routes/admin.js` — database-backed admin dashboards and record APIs, including the products/vendor inventory view.
+- `backend/test/api.integration.test.js` — focused coverage for the changed workflows.
+- `lib/petvault_api.dart` and `lib/main.dart` — backend API integration, responsive admin navigation, inventory view, and dashboard drill-down.
+- `test/admin_dashboard_test.dart` — admin dashboard data, inventory, navigation, drill-down, responsive layout, and sign-out coverage.
+- `README.md` — current story boundaries and link to this audit.
+- `Documents/PetVault_User_Story_Coverage_Audit.md` — this coverage report.
+
+## Admin security verification
+
+- **Public registration UI:** the dropdown is generated from the client's five-role public allowlist (Owner, Seller, Sitter, Veterinarian, Vendor); a widget test verifies no Admin option and the selected role is submitted.
+- **Registration role injection:** the API validates roles against the backend `PUBLIC_ROLES` allowlist, rejects `admin`/`Admin`/case and unknown variants before user creation, audits rejected attempts, and rejects extra role fields through strict request schemas.
+- **Role changes:** `/auth/roles` only activates a role already stored for the account; Admin activation is available only to an account already provisioned with Admin. KYC role requests use the supply-role allowlist and audit denied assignment attempts. No public profile-role update endpoint exists.
+- **Provisioning:** `backend/src/provision-admin.js` requires operator-supplied environment credentials and an explicit email confirmation; it does not promote an existing account.
+- **Admin endpoints and dashboard:** the integration suite verifies a non-admin receives `403` for an admin endpoint, a provisioned Admin can log in and load the dashboard, and admin API routes enforce server-side role checks.
+- **Security review:** the scoped backend review reported no exploitable vulnerabilities. This does not substitute for a penetration test or provider/security certification.
 
 ## Validation performed
 
+- Across final test runs: **29 passed, 0 failed, 1 skipped** (the database-dependent integration test is skipped by the standalone unit-test command).
 - Backend unit/configuration tests: **3 passed, 1 database-dependent test skipped** in the standalone run.
-- PostgreSQL integration suite: **passed** against a disposable local `petvault_test` database on port 5433; this includes the new privacy, check-in, consultation, stock, payment-idempotency, and dispute cases.
-- Flutter tests: **23 passed**.
+- PostgreSQL integration suite: **passed** against a disposable local `petvault_test` database on port 5433; this includes public role allowlist acceptance/rejection, rejected-role audit records, Admin provisioning/login/dashboard access, admin authorization, product search/status filtering, and the privacy, check-in, consultation, stock, payment-idempotency, and dispute cases.
+- Flutter tests: **25 passed**, including public signup role visibility/submission, client-side role validation, admin login/session, navigation, product view, dashboard drill-down, responsive layouts, and sign-out.
 - Flutter static analysis: **no issues found**.
 - Flutter Web build: **passed**. Flutter emitted an existing Cupertino icon-font warning; it did not block the build.
 - Changed backend JavaScript syntax checks and `git diff --check`: **passed**.
+- The backend has no separate compile/build script; backend syntax and runtime behavior were checked with Node.js and the PostgreSQL integration suite.
 
 This is a repository-level implementation and test audit, not a penetration test, legal/privacy certification, payment-provider certification, or clinical validation. Provider-dependent features must remain marked incomplete until their integrations and acceptance tests exist.

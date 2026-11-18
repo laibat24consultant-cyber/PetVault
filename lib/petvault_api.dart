@@ -3,6 +3,14 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+const publicRegistrationRoles = <(String, String)>[
+  ('owner', 'Pet parent'),
+  ('seller', 'Seller'),
+  ('sitter', 'Pet sitter'),
+  ('veterinarian', 'Veterinarian'),
+  ('vendor', 'Vendor'),
+];
+
 class PetVaultApiException implements Exception {
   const PetVaultApiException(this.message, {this.statusCode});
 
@@ -37,6 +45,15 @@ class PetVaultApi {
     required String password,
     String? role,
   }) async {
+    final normalizedRole = role?.trim();
+    if (normalizedRole != null &&
+        normalizedRole.isNotEmpty &&
+        !publicRegistrationRoles.any((option) => option.$1 == normalizedRole)) {
+      throw const PetVaultApiException(
+        'Choose a role available for public registration.',
+        statusCode: 400,
+      );
+    }
     pendingEmail = null;
     developmentVerificationCode = null;
     final response = await _send(
@@ -47,7 +64,8 @@ class PetVaultApi {
         'email': email,
         'phone': phone,
         'password': password,
-        if (role != null && role.trim().isNotEmpty) 'role': role.trim(),
+        if (normalizedRole != null && normalizedRole.isNotEmpty)
+          'role': normalizedRole,
       },
     );
     pendingEmail = email.trim().toLowerCase();
@@ -801,6 +819,19 @@ class PetVaultApi {
         'status': status,
         'paymentStatus': paymentStatus,
       },
+    );
+  }
+
+  Future<Map<String, dynamic>> fetchAdminProducts({
+    int page = 1,
+    String query = '',
+    String? status,
+  }) {
+    return _adminPage(
+      '/admin/products',
+      page: page,
+      query: query,
+      filters: <String, String?>{'status': status},
     );
   }
 

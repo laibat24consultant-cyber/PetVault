@@ -15,9 +15,27 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    expect(
+      publicRegistrationRoles.map((option) => option.$1).toList(),
+      <String>['owner', 'seller', 'sitter', 'veterinarian', 'vendor'],
+    );
+    expect(
+      publicRegistrationRoles.map((option) => option.$2).toList(),
+      <String>['Pet parent', 'Seller', 'Pet sitter', 'Veterinarian', 'Vendor'],
+    );
     await tester.tap(find.byType(DropdownButtonFormField<String>));
     await tester.pumpAndSettle();
     expect(find.text('Admin'), findsNothing);
+    const roleLabels = <String>[
+      'Pet parent',
+      'Seller',
+      'Pet sitter',
+      'Veterinarian',
+      'Vendor',
+    ];
+    for (final roleLabel in roleLabels) {
+      expect(find.text(roleLabel), findsWidgets);
+    }
 
     await tester.pumpWidget(
       const MaterialApp(home: VaultPageView(page: AppPage.roleSelection)),
@@ -30,10 +48,13 @@ void main() {
   testWidgets('registration displays the development code on the OTP screen',
       (WidgetTester tester) async {
     final previousApi = PetVaultApp.api;
+    Map<String, dynamic>? registrationRequest;
     final testApi = PetVaultApi(
       client: MockClient((request) async {
         expect(request.method, 'POST');
         expect(request.url.path, '/api/auth/register');
+        registrationRequest =
+            jsonDecode(request.body) as Map<String, dynamic>;
         return http.Response(
           jsonEncode(<String, Object>{
             'message': 'Verification code issued.',
@@ -62,9 +83,14 @@ void main() {
     await tester.enterText(find.byType(TextField).at(2), '+1 555 010 2020');
     await tester.enterText(find.byType(TextField).at(3), 'secure-test-pass');
     await tester.ensureVisible(find.text('Create account'));
+    await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Seller').last);
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Create account'));
     await tester.pumpAndSettle();
 
+    expect(registrationRequest?['role'], 'seller');
     expect(find.text('Verify your email'), findsOneWidget);
     expect(find.text('Local development verification code'), findsOneWidget);
     expect(find.byType(SelectableText), findsOneWidget);
@@ -72,6 +98,37 @@ void main() {
     expect(
         find.text('This code is for local development only.'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  test('registration client rejects non-public roles before sending', () async {
+    var requestCount = 0;
+    final testApi = PetVaultApi(
+      client: MockClient((request) async {
+        requestCount++;
+        return http.Response('{}', 200);
+      }),
+    );
+    addTearDown(testApi.dispose);
+
+    for (final role in <String>['admin', 'Admin', 'ADMIN']) {
+      await expectLater(
+        testApi.register(
+          displayName: 'Taylor Example',
+          email: 'taylor@example.test',
+          phone: '+15550102020',
+          password: 'secure-test-pass',
+          role: role,
+        ),
+        throwsA(
+          isA<PetVaultApiException>().having(
+            (error) => error.statusCode,
+            'statusCode',
+            400,
+          ),
+        ),
+      );
+    }
+    expect(requestCount, 0);
   });
 
   testWidgets('admin sign-in does not request owner/vendor orders',

@@ -78,6 +78,7 @@ enum AppPage {
   adminBookings,
   adminAppointments,
   adminOrders,
+  adminProducts,
   disputes,
   adminReviews,
   adminNotifications,
@@ -111,6 +112,24 @@ const _adminTabs = <AppPage>[
   AppPage.kycQueue,
   AppPage.riskQueue,
   AppPage.auditTrail,
+];
+
+const _adminDesktopPages = <AppPage>[
+  AppPage.adminDashboard,
+  AppPage.adminUsers,
+  AppPage.kycQueue,
+  AppPage.adminListings,
+  AppPage.riskQueue,
+  AppPage.adminBookings,
+  AppPage.adminAppointments,
+  AppPage.adminOrders,
+  AppPage.adminProducts,
+  AppPage.disputes,
+  AppPage.adminReviews,
+  AppPage.adminNotifications,
+  AppPage.adminSupport,
+  AppPage.auditTrail,
+  AppPage.adminAccess,
 ];
 
 const _catalogGroups = <String, List<AppPage>>{
@@ -183,6 +202,7 @@ const _catalogGroups = <String, List<AppPage>>{
     AppPage.adminBookings,
     AppPage.adminAppointments,
     AppPage.adminOrders,
+    AppPage.adminProducts,
     AppPage.disputes,
     AppPage.adminReviews,
     AppPage.adminNotifications,
@@ -312,6 +332,8 @@ String _titleFor(AppPage page) {
       return 'Veterinary appointments';
     case AppPage.adminOrders:
       return 'Marketplace orders';
+    case AppPage.adminProducts:
+      return 'Products & vendors';
     case AppPage.disputes:
       return 'Disputes & cancellations';
     case AppPage.adminReviews:
@@ -361,6 +383,7 @@ bool _isAdmin(AppPage page) => const <AppPage>{
       AppPage.adminBookings,
       AppPage.adminAppointments,
       AppPage.adminOrders,
+      AppPage.adminProducts,
       AppPage.disputes,
       AppPage.adminReviews,
       AppPage.adminNotifications,
@@ -828,6 +851,13 @@ class _VaultPageViewState extends State<VaultPageView> {
             paymentStatus: _adminStatusFilter.startsWith('payment:')
                 ? _adminStatusFilter.substring('payment:'.length)
                 : null,
+          );
+          break;
+        case AppPage.adminProducts:
+          response = await _api.fetchAdminProducts(
+            page: _adminPage,
+            query: query,
+            status: status,
           );
           break;
         case AppPage.disputes:
@@ -1946,6 +1976,7 @@ class _VaultPageViewState extends State<VaultPageView> {
       AppPage.adminListings => Icons.pets_outlined,
       AppPage.adminBookings => Icons.calendar_month_outlined,
       AppPage.adminOrders => Icons.receipt_long_outlined,
+      AppPage.adminProducts => Icons.inventory_2_outlined,
       AppPage.adminReviews => Icons.star_outline_rounded,
       AppPage.adminNotifications => Icons.notifications_none_rounded,
       AppPage.adminSupport => Icons.support_agent_rounded,
@@ -2040,6 +2071,7 @@ class _VaultPageViewState extends State<VaultPageView> {
   }
 
   Widget _desktopNavigationRail(double viewportWidth) {
+    if (_isAdmin(widget.page)) return _adminDesktopSidebar();
     final tabs = _tabs();
     final labels = _tabLabels();
     final icons = _tabIcons();
@@ -2065,6 +2097,99 @@ class _VaultPageViewState extends State<VaultPageView> {
         (index) => NavigationRailDestination(
           icon: Icon(icons[index]),
           label: Text(labels[index]),
+        ),
+      ),
+    );
+  }
+
+  Widget _adminDesktopSidebar() {
+    return Container(
+      key: const ValueKey<String>('petvault-admin-sidebar'),
+      width: 244,
+      color: _cream,
+      child: Column(
+        children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 18, 14, 14),
+            child: Row(
+              children: <Widget>[
+                const Icon(Icons.pets_rounded, color: _teal, size: 25),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Admin workspace',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          color: _ink,
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1, color: _line),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
+              children: <Widget>[
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(12, 4, 12, 8),
+                  child: Text(
+                    'ADMINISTRATION',
+                    style: TextStyle(
+                      color: _muted,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1,
+                    ),
+                  ),
+                ),
+                for (final page in _adminDesktopPages)
+                  _adminSidebarItem(page),
+              ],
+            ),
+          ),
+          const Divider(height: 1, color: _line),
+          Material(
+            color: _cream,
+            child: ListTile(
+              dense: true,
+              leading: const Icon(Icons.logout_rounded, size: 19),
+              title: const Text('Sign out'),
+              onTap: () {
+                _api.signOut();
+                _store.signOut();
+                _switchTab(AppPage.welcome);
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _adminSidebarItem(AppPage page) {
+    final selected = widget.page == page;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Material(
+        color: _cream,
+        borderRadius: BorderRadius.circular(12),
+        child: ListTile(
+          dense: true,
+          visualDensity: const VisualDensity(vertical: -1),
+          selected: selected,
+          selectedColor: _teal,
+          selectedTileColor: _paleTeal,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          leading: Icon(_iconForPage(page), size: 19),
+          title: Text(
+            _navigationLabel(page),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          onTap: () => _switchTab(page),
         ),
       ),
     );
@@ -2278,6 +2403,8 @@ class _VaultPageViewState extends State<VaultPageView> {
         return _adminAppointments();
       case AppPage.adminOrders:
         return _adminOrders();
+      case AppPage.adminProducts:
+        return _adminProducts();
       case AppPage.disputes:
         return _disputes();
       case AppPage.adminReviews:
@@ -3055,28 +3182,14 @@ class _VaultPageViewState extends State<VaultPageView> {
               borderSide: const BorderSide(color: _line),
             ),
           ),
-          items: const <DropdownMenuItem<String>>[
-            DropdownMenuItem<String>(
-              value: 'owner',
-              child: Text('Pet parent'),
-            ),
-            DropdownMenuItem<String>(
-              value: 'seller',
-              child: Text('Seller'),
-            ),
-            DropdownMenuItem<String>(
-              value: 'sitter',
-              child: Text('Pet sitter'),
-            ),
-            DropdownMenuItem<String>(
-              value: 'veterinarian',
-              child: Text('Veterinarian'),
-            ),
-            DropdownMenuItem<String>(
-              value: 'vendor',
-              child: Text('Vendor'),
-            ),
-          ],
+          items: publicRegistrationRoles
+              .map(
+                (option) => DropdownMenuItem<String>(
+                  value: option.$1,
+                  child: Text(option.$2),
+                ),
+              )
+              .toList(growable: false),
           onChanged: (value) {
             if (value != null) {
               setState(() => _selectedSignupRole = value);
@@ -3646,19 +3759,40 @@ class _VaultPageViewState extends State<VaultPageView> {
     );
   }
 
-  Widget _metricCard(String title, String value, String footer) {
+  Widget _metricCard(
+    String title,
+    String value,
+    String footer, {
+    Key? key,
+    VoidCallback? onTap,
+  }) {
     return _card(
-      Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          _pill(title, color: _sand, textColor: _teal),
-          const SizedBox(height: 8),
-          Text(value,
-              style: const TextStyle(
-                  fontSize: 24, fontWeight: FontWeight.w700, color: _ink)),
-          Text(footer, style: const TextStyle(color: _muted, fontSize: 11)),
-        ],
+      InkWell(
+        key: key,
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: SizedBox(
+          width: double.infinity,
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                _pill(title, color: _sand, textColor: _teal),
+                const SizedBox(height: 8),
+                Text(value,
+                    style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w700,
+                        color: _ink)),
+                Text(footer,
+                    style: const TextStyle(color: _muted, fontSize: 11)),
+              ],
+            ),
+          ),
+        ),
       ),
+      padding: EdgeInsets.zero,
     );
   }
 
@@ -6982,12 +7116,18 @@ class _VaultPageViewState extends State<VaultPageView> {
         Row(
           children: <Widget>[
             Expanded(
-                child: _metricCard('Users', count('totalUsers'),
-                    '${count('verifiedUsers')} verified')),
+                child: _metricCard(
+              'Users',
+              count('totalUsers'),
+              '${count('verifiedUsers')} verified',
+              key: const ValueKey<String>('admin-drilldown-users'),
+              onTap: () => _open(AppPage.adminUsers),
+            )),
             const SizedBox(width: 9),
             Expanded(
                 child: _metricCard('Unverified', count('unverifiedUsers'),
-                    '${count('suspendedUsers')} suspended')),
+                    '${count('suspendedUsers')} suspended',
+                    onTap: () => _open(AppPage.adminUsers))),
           ],
         ),
         const SizedBox(height: 10),
@@ -6995,23 +7135,19 @@ class _VaultPageViewState extends State<VaultPageView> {
           children: <Widget>[
             Expanded(
                 child: _metricCard(
-                    'Sellers', count('sellers'), 'Approved supply accounts')),
+              'Sellers',
+              count('sellers'),
+              'Approved supply accounts',
+              onTap: () => _open(AppPage.adminUsers),
+            )),
             const SizedBox(width: 9),
             Expanded(
                 child: _metricCard(
-                    'Sitters', count('sitters'), 'Registered providers')),
-          ],
-        ),
-        const SizedBox(height: 10),
-        Row(
-          children: <Widget>[
-            Expanded(
-                child: _metricCard('Veterinarians', count('veterinarians'),
-                    'Registered providers')),
-            const SizedBox(width: 9),
-            Expanded(
-                child: _metricCard(
-                    'Vendors', count('vendors'), 'Registered providers')),
+              'Sitters',
+              count('sitters'),
+              'Registered providers',
+              onTap: () => _open(AppPage.adminUsers),
+            )),
           ],
         ),
         const SizedBox(height: 10),
@@ -7019,47 +7155,96 @@ class _VaultPageViewState extends State<VaultPageView> {
           children: <Widget>[
             Expanded(
                 child: _metricCard(
-                    'Pending KYC', count('pendingKyc'), 'Needs human review')),
+              'Veterinarians',
+              count('veterinarians'),
+              'Registered providers',
+              onTap: () => _open(AppPage.adminUsers),
+            )),
             const SizedBox(width: 9),
             Expanded(
                 child: _metricCard(
-                    'Open reports', count('openReports'), 'Listing reports')),
+              'Vendors',
+              count('vendors'),
+              'Registered providers',
+              onTap: () => _open(AppPage.adminUsers),
+            )),
           ],
         ),
         const SizedBox(height: 10),
         Row(
           children: <Widget>[
             Expanded(
-                child: _metricCard('Listings', count('totalListings'),
-                    '${count('approvedListings')} approved')),
+                child: _metricCard(
+              'Pending KYC',
+              count('pendingKyc'),
+              'Needs human review',
+              onTap: () => _open(AppPage.kycQueue),
+            )),
             const SizedBox(width: 9),
             Expanded(
-                child: _metricCard('Pending listings', count('pendingListings'),
-                    'Awaiting moderation')),
+                child: _metricCard(
+              'Open reports',
+              count('openReports'),
+              'Listing reports',
+              onTap: () => _open(AppPage.riskQueue),
+            )),
           ],
         ),
         const SizedBox(height: 10),
         Row(
           children: <Widget>[
             Expanded(
-                child: _metricCard('Bookings', count('totalBookings'),
-                    '${count('openBookings')} active/requested')),
+                child: _metricCard(
+              'Listings',
+              count('totalListings'),
+              '${count('approvedListings')} approved',
+              onTap: () => _open(AppPage.adminListings),
+            )),
+            const SizedBox(width: 9),
+            Expanded(
+                child: _metricCard(
+              'Pending listings',
+              count('pendingListings'),
+              'Awaiting moderation',
+              onTap: () => _open(AppPage.adminListings),
+            )),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: <Widget>[
+            Expanded(
+                child: _metricCard(
+              'Bookings',
+              count('totalBookings'),
+              '${count('openBookings')} active/requested',
+              onTap: () => _open(AppPage.adminBookings),
+            )),
             const SizedBox(width: 9),
             Expanded(
                 child: _metricCard('Appointments', count('totalAppointments'),
-                    'Veterinary schedule')),
+                    'Veterinary schedule',
+                    onTap: () => _open(AppPage.adminAppointments))),
           ],
         ),
         const SizedBox(height: 10),
         Row(
           children: <Widget>[
             Expanded(
-                child: _metricCard('Orders', count('totalOrders'),
-                    '${count('attentionOrders')} payment attention')),
+                child: _metricCard(
+              'Orders',
+              count('totalOrders'),
+              '${count('attentionOrders')} payment attention',
+              onTap: () => _open(AppPage.adminOrders),
+            )),
             const SizedBox(width: 9),
             Expanded(
-                child: _metricCard('Disputes', count('openDisputes'),
-                    '${count('resolvedDisputes')} resolved')),
+                child: _metricCard(
+              'Disputes',
+              count('openDisputes'),
+              '${count('resolvedDisputes')} resolved',
+              onTap: () => _open(AppPage.disputes),
+            )),
           ],
         ),
         const SizedBox(height: 15),
@@ -7103,6 +7288,14 @@ class _VaultPageViewState extends State<VaultPageView> {
           'Monitor persisted order and payment status',
           'Open →',
           () => _open(AppPage.adminOrders),
+        ),
+        const SizedBox(height: 9),
+        _actionRow(
+          Icons.inventory_2_outlined,
+          'Products & vendors',
+          'Review published inventory and vendor accounts',
+          'Open →',
+          () => _open(AppPage.adminProducts),
         ),
         const SizedBox(height: 14),
         Row(
@@ -7412,6 +7605,27 @@ class _VaultPageViewState extends State<VaultPageView> {
         (value) => _changeAdminFilter(status: value),
       ),
       itemBuilder: _adminOrderCard,
+    );
+  }
+
+  Widget _adminProducts() {
+    return _adminRecordsPage(
+      title: 'Products & vendors',
+      subtitle:
+          'Read-only catalog and inventory monitoring; product changes remain with verified vendors.',
+      emptyMessage: 'No products match these filters.',
+      filters: _adminDropdown(
+        'Product status',
+        _adminStatusFilter,
+        const <(String, String)>[
+          ('all', 'All products'),
+          ('published', 'Published'),
+          ('unpublished', 'Unpublished'),
+          ('out_of_stock', 'Out of stock'),
+        ],
+        (value) => _changeAdminFilter(status: value),
+      ),
+      itemBuilder: _adminProductCard,
     );
   }
 
@@ -7929,6 +8143,38 @@ class _VaultPageViewState extends State<VaultPageView> {
                   '${item['productName'] ?? 'Product'} · ${item['vendorName'] ?? 'Vendor'} · Qty ${item['quantity'] ?? ''} · ${item['vendorStatus'] ?? ''}',
                   style: const TextStyle(color: _muted, fontSize: 11),
                 ),
+        ],
+      ),
+    );
+  }
+
+  Widget _adminProductCard(Map<String, dynamic> product) {
+    final published = product['published'] == true;
+    final stock = product['stock'];
+    return _card(
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  product['name'] as String? ?? 'Unnamed product',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+              _pill(published ? 'PUBLISHED' : 'UNPUBLISHED'),
+            ],
+          ),
+          Text(
+            'Vendor: ${product['vendorName'] ?? ''} · ${product['vendorEmail'] ?? ''}',
+            style: const TextStyle(color: _muted, fontSize: 12),
+          ),
+          Text('Price: PKR ${product['price'] ?? ''} · Stock: $stock'),
+          Text(
+            'Updated ${product['updatedAt'] ?? ''}${stock == 0 ? ' · Out of stock' : ''}',
+            style: const TextStyle(color: _muted, fontSize: 11),
+          ),
         ],
       ),
     );

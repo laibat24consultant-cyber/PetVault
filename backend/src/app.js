@@ -45,7 +45,7 @@ const registerSchema = z.object({
   email: emailSchema,
   phone: text(40),
   password: passwordSchema,
-  role: z.enum(['owner', 'seller', 'sitter', 'veterinarian', 'vendor']).optional(),
+  role: z.enum([...PUBLIC_ROLES]).optional(),
 }).strict();
 const emailCodeSchema = z.object({
   email: emailSchema,
@@ -116,6 +116,21 @@ function validateId(value) {
   return uuid.parse(value);
 }
 
+async function auditRejectedRole(pool, req, attemptedRole, actorId = null) {
+  await writeAuditEvent(pool, {
+    actorId,
+    action: actorId
+      ? 'authorization.role_selection_denied'
+      : 'account.registration_role_rejected',
+    resourceType: actorId ? 'user' : 'public_registration',
+    resourceId: actorId,
+    metadata: {
+      attemptedRole: attemptedRole.slice(0, 64),
+      requestId: req.id,
+    },
+  });
+}
+
 function addAuthMiddleware(pool, config) {
   return asyncRoute(async (req, res, next) => {
     await authenticateRequest(req, pool, config);
@@ -123,7 +138,12 @@ function addAuthMiddleware(pool, config) {
   });
 }
 
-export function createApp({ pool, config = loadConfig(), emailSender = sendOneTimeCode }) {
+export function createApp({
+  pool,
+  config = loadConfig(),
+  emailSender = sendOneTimeCode,
+  authRequestLimit = 30,
+}) {
   if (!pool) throw new Error('A PostgreSQL pool is required.');
 
   const app = express();
@@ -132,7 +152,7 @@ export function createApp({ pool, config = loadConfig(), emailSender = sendOneTi
   const authenticate = addAuthMiddleware(pool, config);
   const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    limit: 30,
+    limit: authRequestLimit,
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: 'Too many authentication requests. Try again later.' },
@@ -172,8 +192,16 @@ export function createApp({ pool, config = loadConfig(), emailSender = sendOneTi
   }));
 
   router.post('/auth/register', authLimiter, asyncRoute(async (req, res) => {
-    if (req.body?.role === ADMIN_ROLE) {
-      throw new HttpError(403, 'Admin accounts can only be provisioned by an administrator.');
+    const submittedRole = req.body?.role;
+    if (typeof submittedRole === 'string' && !PUBLIC_ROLES.has(submittedRole)) {
+      await auditRejectedRole(pool, req, submittedRole);
+      const isAdminAttempt = submittedRole.trim().toLowerCase() === ADMIN_ROLE;
+      throw new HttpError(
+        403,
+        isAdminAttempt
+          ? 'Admin accounts can only be provisioned by an administrator.'
+          : 'This role is not available during public registration.',
+      );
     }
     const body = parse(registerSchema, req.body);
     const email = normalizeEmail(body.email);
@@ -618,11 +646,18 @@ export function createApp({ pool, config = loadConfig(), emailSender = sendOneTi
   }));
 
   router.post('/auth/roles', authenticate, asyncRoute(async (req, res) => {
-    const { role } = parse(
-      z.object({ role: z.enum([...PUBLIC_ROLES]) }).strict(),
-      req.body,
-    );
+    const requestedRole = req.body?.role;
+    if (typeof requestedRole === 'string' &&
+        requestedRole !== ADMIN_ROLE &&
+        !PUBLIC_ROLES.has(requestedRole)) {
+      await auditRejectedRole(pool, req, requestedRole, req.user.id);
+      throw new HttpError(403, 'This role cannot be activated.');
+    }
+    const { role } = parse(z.object({
+      role: z.enum([...PUBLIC_ROLES, ADMIN_ROLE]),
+    }).strict(), req.body);
     if (!req.user.roles.includes(role)) {
+      await auditRejectedRole(pool, req, role, req.user.id);
       throw new HttpError(403, 'Roles can only be activated after assignment and approval.');
     }
     res.json({ activeRole: role });

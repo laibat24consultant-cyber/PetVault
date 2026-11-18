@@ -6,7 +6,7 @@ import { inTransaction } from '../database.js';
 
 const uuid = z.string().uuid();
 const submitSchema = z.object({
-  role: z.enum(['seller', 'sitter', 'veterinarian', 'vendor']),
+  role: z.enum([...SUPPLY_ROLES]),
   documentReference: z.string().trim().min(3).max(500),
 }).strict();
 const reviewSchema = z.object({
@@ -37,6 +37,17 @@ export function registerKycRoutes(router, { pool, requireRole }) {
   }));
 
   router.post('/kyc', asyncRoute(async (req, res) => {
+    const requestedRole = req.body?.role;
+    if (typeof requestedRole === 'string' && !SUPPLY_ROLES.has(requestedRole)) {
+      await writeAuditEvent(pool, {
+        actorId: req.user.id,
+        action: 'authorization.role_assignment_denied',
+        resourceType: 'user',
+        resourceId: req.user.id,
+        metadata: { attemptedRole: requestedRole.slice(0, 64) },
+      });
+      throw new HttpError(403, 'Choose an available supply role.');
+    }
     const body = submitSchema.parse(req.body);
     if (!SUPPLY_ROLES.has(body.role)) {
       throw new HttpError(403, 'Choose an available supply role.');
